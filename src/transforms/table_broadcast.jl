@@ -1,0 +1,415 @@
+
+function get_2d_regions(coords::Vector{Tuple{Int,Int}})
+    isempty(coords) && return []
+
+    if length(coords) == 1
+        c, r = coords[1]
+        return [(c:c, r:r)]
+    end
+
+    regions = Vector{Tuple{UnitRange{Int},UnitRange{Int}}}()
+
+    points = copy(coords)
+    while !isempty(points)
+        start_c, start_r = popfirst!(points)
+        end_r = start_r
+        while !isempty(points) && points[1] == (start_c, end_r + 1)
+            _, end_r = popfirst!(points)
+        end
+
+        end_c = start_c + 1
+
+        next_col_points = [(end_c, r) for r in start_r:end_r]
+        while all(p -> p in points, next_col_points)
+            end_c += 1
+            filter!(p -> !(p in next_col_points), points)
+            next_col_points = [(end_c, r) for r in start_r:end_r]
+        end
+        end_c -= 1
+
+        push!(regions, (start_c:end_c, start_r:end_r))
+
+    end
+
+    regions
+end
+
+function table_statements_have_same_equation(a::TableStatement, b::TableStatement)
+    if ismissing(a.rhs_expr) || ismissing(b.rhs_expr)
+        return a.rhs_expr === b.rhs_expr
+    end
+
+    base_expr = a.rhs_expr
+    row_a, col_a = a.lhs_expr.args[2:3]
+    row_b, col_b = b.lhs_expr.args[2:3]
+
+    delta_y = row_a - row_b
+    delta_x = col_a - col_b
+    offset_expr = offset(b.rhs_expr, delta_y, delta_x)
+
+    base_expr === offset_expr
+end
+
+function not_interdependent(closure, node_a, node_b)
+    !(node_b in outneighbors(closure, node_a)) && !(node_a in outneighbors(closure, node_b))
+end
+function has_path_within(
+    g::AbstractGraph{T},
+    u::Integer,
+    v::Integer,
+    max_steps::Integer
+) where {T}
+    seen = zeros(Bool, nv(g))
+    (seen[u] || seen[v]) && return false
+    u == v && return true # cannot be separated
+    next = Vector{Tuple{T, Int32}}()
+    push!(next, (u, 0))
+    seen[u] = true
+    while !isempty(next)
+        src, level = popfirst!(next) # get new element from queue
+        if level > max_steps
+            continue
+        end
+
+        for vertex in outneighbors(g, src)
+            vertex == v && return true
+            if !seen[vertex]
+                push!(next, (vertex, level + 1)) # push onto queue
+                seen[vertex] = true
+            end
+        end
+    end
+    return false
+end
+
+function table_broadcast_transform_2d!(statements::Vector{AbstractStatement})
+    stmt_graph = make_statement_graph(statements)
+    # @time closure = transitiveclosure(stmt_graph)
+    topo_sorted = topological_sort(reverse(stmt_graph))
+    stmt_topo_levels = get_topo_levels_top_down(stmt_graph)
+    stmt_to_level = Dict((stmt => stmt_topo_levels[i]) for (i, stmt) in enumerate(statements))
+    # table_statements::Vector{TableStatement} = filter(s -> isa(s, TableStatement), statements)
+    table_statement_idxs::Vector{Int64} = filter(i -> isa(statements[i], TableStatement), eachindex(statements))
+    # node_nums = used_subset.node_nums
+
+
+    function get_stmt_table(stmt::TableStatement)
+        stmt.lhs_expr.args[1]
+    end
+
+    function is_independent(node_a::Int64, node_b::Int64)
+        lvl_a = stmt_topo_levels[node_a]
+        lvl_b = stmt_topo_levels[node_b]
+        if lvl_a == lvl_b
+            return true
+        end
+
+        if lvl_b > lvl_a
+            return !has_path_within(stmt_graph, node_b, node_a, lvl_b - lvl_a + 1)
+        else
+            return !has_path_within(stmt_graph, node_a, node_b, lvl_a - lvl_b + 1)
+        end
+    end
+
+    # same_table_and_level = group_to_dict(table_statement_idxs, i -> (get_stmt_table(statements[i]), stmt_topo_levels[i]))
+    same_table_and_level = group_to_dict(table_statement_idxs, i -> get_stmt_table(statements[i]))
+    groups = Vector{Vector{Int64}}()
+    for group in values(same_table_and_level)
+        # @time closure = transitiveclosure(stmt_graph)
+        # same_equations = group_by(group, (i, j) -> table_statements_have_same_equation(statements[i], statements[j]) && not_interdependent(closure, i, j))
+        same_equations = group_by(group, (i, j) -> table_statements_have_same_equation(statements[i], statements[j]) && is_independent(i, j))
+        append!(groups, same_equations)
+    end
+
+    new_statements = copy(statements)
+
+    grouped_by_level = groups
+
+    num_table_stmts = 0
+
+    for group in grouped_by_level
+        if length(group) <= 1
+            continue
+        end
+        table = statements[group[1]].lhs_expr.args[1]
+        sheet = table.sheet_name
+
+        # get_row_num = s -> rownum(s.assigned_vars[1])
+        # get_col_num = s -> colnum(s.assigned_vars[1])
+        get_row_num = i -> rownum(statements[i].assigned_vars[1])
+        get_col_num = i -> colnum(statements[i].assigned_vars[1])
+
+        row_nums = get_row_num.(group)
+        col_nums = get_col_num.(group)
+        coords = zip(col_nums, row_nums) |> collect
+        coord_to_statement = Dict(c => s for (c, s) in zip(coords, group))
+
+        regions = get_2d_regions(sort(coords))
+        # println("Group size = $(length(group))")
+        for region in regions
+            cols, rows = region
+            region_area = (length(cols) * length(rows))
+            if region_area < 2
+                continue
+            end
+            # if length(cols) > 1
+            #     println("\t$region")
+            #     println("\tSize: $(region_area)")
+            # end
+
+
+            region_coords = vec([(c, r) for c in cols, r in rows])
+            run_statements = [coord_to_statement[coord] for coord in region_coords]
+
+            first_expr = statements[run_statements[1]].rhs_expr
+
+            broadcasted = try
+                convert_to_broadcasted(first_expr, length(rows) - 1, length(cols) - 1)
+            catch ex
+                @show ex
+                @show sheet rows cols
+                println("Failed to broadcast, would have broadcased a run of $(length(region_coords))")
+
+                statement_group = statements[run_statements]
+                length_before = length(new_statements)
+                filter!(s -> !(s in statement_group), new_statements)
+                length_after = length(new_statements)
+                println("Remove $(length_before - length_after) statements to put them in a group")
+                push!(new_statements, GroupedStatement(statement_group))
+                continue
+            end
+
+            length_before = length(new_statements)
+            filter!(s -> !(s in statements[run_statements]), new_statements)
+            length_after = length(new_statements)
+            # println("Remove $(length_before - length_after) statements")
+
+
+            # lhs_expr = ExcelExpr(:table_ref, table, (run_idx[begin]:run_idx[end]) .- startrow(table) .+ 1, run_statements[1].lhs_expr.args[3], (true, true), (true, true))
+            table_rows = rows .- startrow(table) .+ 1
+            table_cols = cols .- startcol(table) .+ 1
+            # println("Table start row = $(startrow(table)), start col = $(startcol(table))")
+            # @show table
+            # @show table_rows, table_cols
+            lhs_expr = ExcelExpr(:table_ref, table, table_rows, table_cols, (true, true), (true, true))
+
+            lhs_vars = reduce(vcat, get_set_cells.(statements[run_statements]))
+            # @show lhs_vars
+            new_statement = TableStatement(lhs_expr, lhs_vars, broadcasted, reduce(vcat, get_cell_deps.(statements[run_statements])) |> unique |> collect, true)
+
+            push!(new_statements, new_statement)
+            num_table_stmts += 1
+
+        end
+    end
+
+    length_before = length(statements)
+    length_after = length(new_statements)
+    println("table_broadcast_transform_2d!: Removed $(length_before - length_after) statements")
+    println("table_broadcast_transform_2d!: Created $num_table_stmts table statements")
+
+    new_statements
+end
+
+# function table_broadcast_transform_2d!(statements::Vector{AbstractStatement}, used_subset::WorkbookSubset, topo_levels)
+#     table_statements::Vector{TableStatement} = filter(s -> isa(s, TableStatement), statements)
+#     node_nums = used_subset.node_nums
+
+
+#     function get_stmt_table(stmt::TableStatement)
+#         stmt.lhs_expr.args[1]
+#     end
+
+#     level_cache = Dict{TableStatement,Int}()
+#     function get_stmt_level(stmt::TableStatement)
+#         if stmt in keys(level_cache)
+#             return level_cache[stmt]
+#         end
+
+#         get_level = c -> (c in keys(node_nums) && node_nums[c] in keys(topo_levels)) ? topo_levels[node_nums[c]] : -1
+#         get_stmt_level = stmt -> maximum(get_level, get_set_cells(stmt); init=0)
+#         level = get_stmt_level(stmt)
+#         level_cache[stmt] = level
+
+#         level
+#     end
+
+#     same_table_and_level = group_to_dict(table_statements, stmt -> (get_stmt_table(stmt), get_stmt_level(stmt)))
+#     groups = Vector{Vector{TableStatement}}()
+#     for group in values(same_table_and_level)
+#         same_equations = group_by(group, table_statements_have_same_equation)
+#         append!(groups, same_equations)
+#     end
+
+
+#     new_statements = copy(statements)
+
+#     grouped_by_level = groups
+#     # grouped_by_level = group_by(table_statements, same_table_equation_and_level)
+
+#     num_table_stmts = 0
+
+#     for group in grouped_by_level
+#         if length(group) <= 1
+#             continue
+#         end
+#         table = group[1].lhs_expr.args[1]
+#         sheet = table.sheet_name
+
+#         get_row_num = s -> rownum(s.assigned_vars[1])
+#         get_col_num = s -> colnum(s.assigned_vars[1])
+
+#         row_nums = get_row_num.(group)
+#         col_nums = get_col_num.(group)
+#         coords = zip(col_nums, row_nums) |> collect
+#         coord_to_statement = Dict(c => s for (c, s) in zip(coords, group))
+
+#         regions = get_2d_regions(sort(coords))
+#         # println("Group size = $(length(group))")
+#         for region in regions
+#             cols, rows = region
+#             region_area = (length(cols) * length(rows))
+#             if region_area < 2
+#                 continue
+#             end
+#             # if length(cols) > 1
+#             #     println("\t$region")
+#             #     println("\tSize: $(region_area)")
+#             # end
+
+
+#             region_coords = vec([(c, r) for c in cols, r in rows])
+#             run_statements = [coord_to_statement[coord] for coord in region_coords]
+
+#             first_expr = run_statements[1].rhs_expr
+
+#             broadcasted = try
+#                 convert_to_broadcasted(first_expr, length(rows) - 1, length(cols) - 1)
+#             catch ex
+#                 @show ex
+#                 println("Failed to broadcast, would have broadcased a run of $(length(region_coords))")
+#                 # @show sheet run[1]
+#                 continue
+#             end
+
+#             length_before = length(new_statements)
+#             filter!(s -> !(s in run_statements), new_statements)
+#             length_after = length(new_statements)
+#             # println("Remove $(length_before - length_after) statements")
+
+
+#             # lhs_expr = ExcelExpr(:table_ref, table, (run_idx[begin]:run_idx[end]) .- startrow(table) .+ 1, run_statements[1].lhs_expr.args[3], (true, true), (true, true))
+#             table_rows = rows .- startrow(table) .+ 1
+#             table_cols = cols .- startcol(table) .+ 1
+#             # println("Table start row = $(startrow(table)), start col = $(startcol(table))")
+#             # @show table
+#             # @show table_rows, table_cols
+#             lhs_expr = ExcelExpr(:table_ref, table, table_rows, table_cols, (true, true), (true, true))
+
+#             lhs_vars = reduce(vcat, get_set_cells.(run_statements))
+#             # @show lhs_vars
+#             new_statement = TableStatement(lhs_expr, lhs_vars, broadcasted, reduce(vcat, get_cell_deps.(run_statements)) |> unique |> collect, true)
+
+#             push!(new_statements, new_statement)
+#             num_table_stmts += 1
+
+#         end
+#     end
+
+#     length_before = length(statements)
+#     length_after = length(new_statements)
+#     println("table_broadcast_transform_2d!: Removed $(length_before - length_after) statements")
+#     println("table_broadcast_transform_2d!: Created $num_table_stmts table statements")
+
+#     new_statements
+# end
+
+function table_broadcast_transform_2d!(statements::Vector{AbstractStatement}, used_subset::WorkbookSubset)
+    topo_levels = get_topo_levels_top_down(used_subset)
+    table_broadcast_transform_2d!(statements, used_subset, topo_levels)
+end
+
+# This function is currently unused
+function table_broadcast_transform!(statements::Vector{AbstractStatement}, used_subset::WorkbookSubset, topo_levels)
+    table_statements::Vector{TableStatement} = filter(s -> isa(s, TableStatement), statements)
+
+    node_nums = used_subset.node_nums
+
+    statements_by_table = group_by(table_statements, (a, b) -> getname(a.lhs_expr.args[1]) == getname(b.lhs_expr.args[1]))
+    for table_statements in statements_by_table
+        grouped_by_col = group_by(table_statements, (a, b) -> colnum.(get_set_cells(a)) == colnum.(get_set_cells(b)))
+        for col_group in grouped_by_col
+            example_statement = col_group[1]
+            sheet = example_statement.lhs_expr.args[1].sheet_name
+            # if sheet != "5.Cap-ex"
+            #     continue
+            # end
+
+            table = col_group[1].lhs_expr.args[1]
+
+            equal_cell_groups = group_by(col_group, table_statements_have_same_equation)
+
+            for group in equal_cell_groups
+                if length(group) > 1
+                    example_statement = group[1]
+
+                    println("$(example_statement.assigned_vars), $(length(group))")
+                end
+                get_row_num = s -> rownum(s.assigned_vars[1])
+                sorted_statements = sort(group, by=get_row_num)
+                # @show get_row_num.(sorted_statements)
+
+
+
+                row_nums = get_row_num.(sorted_statements)
+                # row_indexes = rownum.(map(s -> s.assigned_vars[1], sorted_statements)) .- (starting_row - 1)
+                starting_row = row_nums[begin]
+
+                # @show row_nums
+
+                runs = get_contiguous_runs(row_nums)
+
+                for run_idx in runs
+                    if length(run_idx) < 2
+                        continue
+                    end
+                    # run_statements = sorted_statements[run_idx]
+                    statement_indices = [findfirst(r -> r == idx, row_nums) for idx in run_idx]
+                    # @show row_nums
+                    # @show run_idx
+                    # @show statement_indices
+                    run_statements = sorted_statements[statement_indices]
+                    lhs_vars = reduce(vcat, get_set_cells.(run_statements))
+
+                    levels = unique(map(c -> (c in keys(node_nums) && node_nums[c] in keys(topo_levels)) ? topo_levels[node_nums[c]] : -1, lhs_vars))
+
+                    if !(-1 in levels) && length(levels) == 1
+                        first_expr = run_statements[1].rhs_expr
+
+                        broadcasted = try
+                            convert_to_broadcasted(first_expr, run_idx[end] - run_idx[begin], 0)
+                        catch ex
+                            @show ex
+                            println("Failed to broadcast, would have broadcased a run of $(length(run))")
+                            # @show sheet run[1]
+                            continue
+                        end
+
+                        length_before = length(statements)
+                        filter!(s -> !(s in run_statements), statements)
+                        length_after = length(statements)
+                        println("Remove $(length_before - length_after) statements")
+
+
+                        lhs_expr = ExcelExpr(:table_ref, table, (run_idx[begin]:run_idx[end]) .- startrow(table) .+ 1, run_statements[1].lhs_expr.args[3], (true, true), (true, true))
+
+                        # @show lhs_vars
+                        new_statement = TableStatement(lhs_expr, lhs_vars, broadcasted, reduce(vcat, get_cell_deps.(run_statements)) |> unique |> collect, true)
+
+                        push!(statements, new_statement)
+                    end
+                end
+            end
+        end
+    end
+end
