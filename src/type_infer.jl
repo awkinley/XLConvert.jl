@@ -252,7 +252,7 @@ function get_type(expr::ExcelExpr, current_sheet, cell_types, key_values)
         end
         ExcelExpr(:func_param, (idx, type)) => type
         default => begin
-            println("Type of $default is Any")
+            # println("Type of $default is Any")
             Any
         end
     end

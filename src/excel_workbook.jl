@@ -216,5 +216,11 @@ function parse_workbook(filepath::AbstractString)
 end
 
 function get_all_referenced_cells(workbook::ExcelWorkbook)
-    collect(union(keys(workbook.cell_dependencies), values(workbook.cell_dependencies)...))
+    unioned = Set(keys(workbook.cell_dependencies))
+    for cells in values(workbook.cell_dependencies)
+        union!(unioned, cells)
+    end
+
+    # collect(union(keys(workbook.cell_dependencies), values(workbook.cell_dependencies)...))
+    collect(unioned)
 end

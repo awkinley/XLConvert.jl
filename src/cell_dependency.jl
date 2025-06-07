@@ -1,6 +1,6 @@
 @auto_hash_equals struct CellDependency
-    sheet_name
-    cell
+    sheet_name::String
+    cell::String
 
     function CellDependency(sheet_name, cell)
         new_cell = replace(cell, "\$" => "")

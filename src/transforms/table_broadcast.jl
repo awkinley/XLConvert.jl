@@ -34,6 +34,43 @@ function get_2d_regions(coords::Vector{Tuple{Int,Int}})
     regions
 end
 
+
+function exprs_equal_with_offset(a::ExcelExpr, b::ExcelExpr, rows::Int, cols::Int)
+    if a.head != b.head || length(a.args) != length(b.args)
+        return false
+    end
+
+    if a.head == :cell_ref
+        return a === offset(b, rows, cols)
+    elseif a.head == :table_ref
+        return a === offset(b, rows, cols)
+    else
+        for i in 1:length(a.args)
+            if !equal_with_offset(a.args[i], b.args[i], rows, cols)
+                return false
+            end
+        end
+        # for (a_arg, b_arg) in zip(a.args, b.args)
+        #     if !equal_with_offset(a_arg, b_arg, rows, cols)
+        #         return false
+        #     end
+        # end
+        return true
+    end
+end
+
+function equal_with_offset(a, b, rows::Int, cols::Int)
+    if (a isa ExcelExpr) && (b isa ExcelExpr)
+        return exprs_equal_with_offset(a, b, rows, cols)
+    end
+
+    if (a isa ExcelExpr) || (b isa ExcelExpr)
+        return false
+    end
+
+    a === b
+end
+
 function table_statements_have_same_equation(a::TableStatement, b::TableStatement)
     if ismissing(a.rhs_expr) || ismissing(b.rhs_expr)
         return a.rhs_expr === b.rhs_expr
@@ -45,9 +82,10 @@ function table_statements_have_same_equation(a::TableStatement, b::TableStatemen
 
     delta_y = row_a - row_b
     delta_x = col_a - col_b
-    offset_expr = offset(b.rhs_expr, delta_y, delta_x)
+    return equal_with_offset(base_expr, b.rhs_expr, delta_y, delta_x)
+    # offset_expr = offset(b.rhs_expr, delta_y, delta_x)
 
-    base_expr === offset_expr
+    # base_expr === offset_expr
 end
 
 function not_interdependent(closure, node_a, node_b)
@@ -57,23 +95,25 @@ function has_path_within(
     g::AbstractGraph{T},
     u::Integer,
     v::Integer,
-    max_steps::Integer
+    max_steps::Integer,
+    seen::Vector{Bool},
 ) where {T}
-    seen = zeros(Bool, nv(g))
-    (seen[u] || seen[v]) && return false
+    fill!(seen, false)
+    # seen = zeros(Bool, nv(g))
+    # (seen[u] || seen[v]) && return false
     u == v && return true # cannot be separated
     next = Vector{Tuple{T, Int32}}()
     push!(next, (u, 0))
     seen[u] = true
     while !isempty(next)
         src, level = popfirst!(next) # get new element from queue
-        if level > max_steps
-            continue
-        end
+        # if level > max_steps
+        #     continue
+        # end
 
         for vertex in outneighbors(g, src)
             vertex == v && return true
-            if !seen[vertex]
+            if !seen[vertex] && level <= max_steps
                 push!(next, (vertex, level + 1)) # push onto queue
                 seen[vertex] = true
             end
@@ -97,6 +137,7 @@ function table_broadcast_transform_2d!(statements::Vector{AbstractStatement})
         stmt.lhs_expr.args[1]
     end
 
+    path_seen = zeros(Bool, nv(stmt_graph))
     function is_independent(node_a::Int64, node_b::Int64)
         lvl_a = stmt_topo_levels[node_a]
         lvl_b = stmt_topo_levels[node_b]
@@ -105,9 +146,9 @@ function table_broadcast_transform_2d!(statements::Vector{AbstractStatement})
         end
 
         if lvl_b > lvl_a
-            return !has_path_within(stmt_graph, node_b, node_a, lvl_b - lvl_a + 1)
+            return !has_path_within(stmt_graph, node_b, node_a, lvl_b - lvl_a, path_seen)
         else
-            return !has_path_within(stmt_graph, node_a, node_b, lvl_a - lvl_b + 1)
+            return !has_path_within(stmt_graph, node_a, node_b, lvl_a - lvl_b, path_seen)
         end
     end
 
@@ -168,11 +209,13 @@ function table_broadcast_transform_2d!(statements::Vector{AbstractStatement})
             catch ex
                 @show ex
                 @show sheet rows cols
-                println("Failed to broadcast, would have broadcased a run of $(length(region_coords))")
+                println("Failed to broadcast, would have broadcasted a run of $(length(region_coords))")
 
                 statement_group = statements[run_statements]
+                statement_set = Set(statement_group)
                 length_before = length(new_statements)
-                filter!(s -> !(s in statement_group), new_statements)
+                # filter!(s -> !(s in statement_group), new_statements)
+                filter!(!in(statement_set), new_statements)
                 length_after = length(new_statements)
                 println("Remove $(length_before - length_after) statements to put them in a group")
                 push!(new_statements, GroupedStatement(statement_group))
@@ -180,7 +223,10 @@ function table_broadcast_transform_2d!(statements::Vector{AbstractStatement})
             end
 
             length_before = length(new_statements)
-            filter!(s -> !(s in statements[run_statements]), new_statements)
+            statement_group = statements[run_statements]
+            statement_set = Set(statement_group)
+            filter!(!in(statement_set), new_statements)
+            # filter!(s -> !(s in statements[run_statements]), new_statements)
             length_after = length(new_statements)
             # println("Remove $(length_before - length_after) statements")
 
@@ -193,9 +239,11 @@ function table_broadcast_transform_2d!(statements::Vector{AbstractStatement})
             # @show table_rows, table_cols
             lhs_expr = ExcelExpr(:table_ref, table, table_rows, table_cols, (true, true), (true, true))
 
-            lhs_vars = reduce(vcat, get_set_cells.(statements[run_statements]))
+            # lhs_vars = reduce(vcat, get_set_cells.(statements[run_statements]))
+            lhs_vars = reduce(vcat, get_set_cells.(statement_group))
             # @show lhs_vars
-            new_statement = TableStatement(lhs_expr, lhs_vars, broadcasted, reduce(vcat, get_cell_deps.(statements[run_statements])) |> unique |> collect, true)
+            # new_statement = TableStatement(lhs_expr, lhs_vars, broadcasted, reduce(vcat, get_cell_deps.(statements[run_statements])) |> unique |> collect, true)
+            new_statement = TableStatement(lhs_expr, lhs_vars, broadcasted, reduce(vcat, get_cell_deps.(statement_group)) |> unique |> collect, true)
 
             push!(new_statements, new_statement)
             num_table_stmts += 1

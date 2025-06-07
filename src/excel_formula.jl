@@ -64,7 +64,7 @@ function offset(expr::ExcelExpr, rows::Int, cols::Int)
 
             ExcelExpr(:table_ref, table, row_idx, col_idx, fixed_row, fixed_col)
         end
-        _ => ExcelExpr(head, map(x -> offset(x, rows, cols), args)...)
+        _ => ExcelExpr(head, map(x -> offset(x, rows, cols), args))
     end
 end
 

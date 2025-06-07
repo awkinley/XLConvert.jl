@@ -86,24 +86,47 @@ function replace_func_params(expr, params_dict)
     end
 end
 
-function can_loop_stmts(statements)
+function can_loop_stmts(statements::AbstractArray{AbstractStatement}, functionalized)
     if any(!(s isa TableStatement) for s in statements)
         # They need to all be TableStatements
         println("Failed because not every statement was a table statement")
         return false
     end
 
-    funcs_and_params = [functionalize(s.rhs_expr, []) for s in statements]
-    funcs = [a[1] for a in funcs_and_params]
-    # @show funcs
-    unique_funcs = unique(funcs)
-    if length(unique_funcs) != 1
-        # Different functions
-        println("Failed because not all the functions are the same")
+    if length(statements) == 0
         return false
     end
 
-    params = reduce(vcat, [a[2] for a in funcs_and_params])
+    all_params = []
+    # func, params = functionalize(statements[1].rhs_expr, [])
+    func, params = functionalized[1]
+    push!(all_params, params)
+    # params = []
+    for (new_func, func_params) in functionalized[2:end]
+    # for s in statements[2:end]
+    #     new_func, func_params = functionalize(s.rhs_expr, [])
+        if func != new_func
+            println("Failed because not all the functions are the same")
+            return false
+        end
+
+        push!(all_params, func_params)
+        # append!(params, func_params)
+
+    end
+    
+    # funcs_and_params = [functionalize(s.rhs_expr, []) for s in statements]
+    # funcs = [a[1] for a in funcs_and_params]
+    # # @show funcs
+    # unique_funcs = unique(funcs)
+    # if length(unique_funcs) != 1
+    #     # Different functions
+    #     println("Failed because not all the functions are the same")
+    #     return false
+    # end
+
+    # params = reduce(vcat, [a[2] for a in funcs_and_params])
+    params = reduce(vcat, all_params)
     param_sets = unique.(eachcol(params))
     fixed_params = findall(length.(param_sets) .== 1)
     changing_params = findall(length.(param_sets) .!= 1)
@@ -139,7 +162,7 @@ function can_loop_stmts(statements)
 end
 
 function export_looped(exporter::JuliaExporter, wb::ExcelWorkbook, statements)
-    funcs_and_params = [functionalize(s.rhs_expr, []) for s in statements]
+    funcs_and_params = [functionalize(s.rhs_expr) for s in statements]
     # @show funcs_and_params
     func = funcs_and_params[1][1]
     # funcs = [a[1] for a in funcs_and_params]
@@ -214,9 +237,19 @@ function export_with_for_loops(exporter::JuliaExporter, wb::ExcelWorkbook, state
     last_idx = 1
     last_stmt = sub_statements[last_idx]
 
+    function maybe_functionalize(stmt)
+        if stmt isa TableStatement
+            functionalize(stmt.rhs_expr)
+        else
+            nothing
+        end
+    end
+
+    functionalized = maybe_functionalize.(sub_statements)
+
     for i in 2:length(sub_statements)
         # @show i
-        if !can_loop_stmts(sub_statements[last_idx:i])
+        if !can_loop_stmts(@view(sub_statements[last_idx:i]), @view(functionalized[last_idx:i]))
             push!(can_loop_ranges, last_idx:i-1)
             last_idx = i
         end

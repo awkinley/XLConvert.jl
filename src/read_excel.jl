@@ -729,10 +729,10 @@ function convert_to_broadcasted(expr::ExcelExpr, row_offset, col_offset)
     end
 end
 
-function functionalize(expr, previous_params)
+function functionalize(expr, previous_params::Matrix{ExcelExpr})
     (expr, previous_params)
 end
-function functionalize(expr::ExcelExpr, previous_params)
+function functionalize(expr::ExcelExpr, previous_params::Matrix{ExcelExpr})
     @match expr begin
         ExcelExpr(:cell_ref, (cell, sheet)) => begin
             (ExcelExpr(:func_param, length(previous_params) + 1), [previous_params... expr])
@@ -760,6 +760,10 @@ function functionalize(expr::ExcelExpr, previous_params)
             # reduce(vcat, mapped)
         end
     end
+end
+
+function functionalize(expr)
+    functionalize(expr, Matrix{ExcelExpr}(undef, 0, 0))
 end
 
 function compute_delayed_grouping(graph, used_nodes, max_level)
@@ -1130,7 +1134,7 @@ end
 function find_table_containing_cell(cell::CellDependency, tables)
     r = rownum(cell)
     c = colnum(cell)
-    findfirst(t -> ((r, c) in t) && cell.sheet_name == t.sheet_name, tables)
+    findfirst(t -> cell.sheet_name == t.sheet_name &&  ((r, c) in t), tables)
 end
 
 
@@ -1237,12 +1241,14 @@ function make_statement_graph(statements::Vector{AbstractStatement})
     #     end
     # end
 
-    statement_nums = Dict([n => i for (i, n) in enumerate(statements)])
+    statement_nums = Dict{AbstractStatement, Int64}([n => i for (i, n) in enumerate(statements)])
 
-    edge_list = []
+    edge_list = Vector{Edge}()
     for statement in statements
         start_node = statement_nums[statement]
-        for cell_dep in get_cell_deps(statement)
+        cell_deps::Vector{CellDependency} = get_cell_deps(statement)
+        for cell_dep in cell_deps
+            # cell_dep::CellDependency
             if !(cell_dep in keys(cell_to_statement))
                 @show get_set_cells(statement)
                 @show cell_dep
@@ -1253,7 +1259,7 @@ function make_statement_graph(statements::Vector{AbstractStatement})
             # In cases like grouped statements, it's possible for nodes to depend on themselves
             # we should just be able to ignore that
             if start_node != end_node
-                push!(edge_list, (start_node, end_node))
+                push!(edge_list, Edge(start_node, end_node))
             end
         end
     end
@@ -1262,7 +1268,8 @@ function make_statement_graph(statements::Vector{AbstractStatement})
     # nested_edge_list = [[(statement_nums[statement], statement_nums[cell_to_statement[cell_dep]]) for cell_dep in get_cell_deps(statement)] for statement in statements]
     # edge_list = reduce(vcat, nested_edge_list)
 
-    graph = Graphs.SimpleDiGraphFromIterator(Edge.(edge_list))
+    # graph = Graphs.SimpleDiGraphFromIterator(Edge.(edge_list))
+    graph = Graphs.SimpleDiGraphFromIterator(edge_list)
 
     cycles = Graphs.simplecycles(graph)
     if !isempty(cycles)
@@ -1416,7 +1423,7 @@ function export_statements_levels(io::IO, exporter, wb::ExcelWorkbook, statement
 
         level_statements = sort(level_statements, by=s -> get_set_cells(s)[1])
 
-        println("Level: $(level)")
+        # println("Level: $(level)")
         write(io, "# Level $(level)\n")
 
         for s in level_statements

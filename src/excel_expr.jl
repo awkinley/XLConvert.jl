@@ -3,6 +3,7 @@
     args::Tuple
 
     ExcelExpr(head::Symbol, args...) = new(head, args)
+    ExcelExpr(head::Symbol, args::Tuple) = new(head, args)
 end
 
 

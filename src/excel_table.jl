@@ -34,7 +34,14 @@ function row_name(table::ExcelTable, row_idx)
     # string(xf[table.sheet_name][table.column_names_range][col_idx])
 end
 
-Base.in((row, col), table::ExcelTable) = (row >= startrow(table) && row <= endrow(table) && col >= startcol(table) && col <= endcol(table))
+# Base.in((row, col), table::ExcelTable) = (row >= startrow(table) && row <= endrow(table) && col >= startcol(table) && col <= endcol(table))
+function Base.in((row, col), table::ExcelTable) 
+    start_c, start_r = parse_cell(table.top_left)
+    end_c, end_r = parse_cell(table.bottom_right)
+
+    (start_r <= row <= end_r) && (start_c <= col <= end_c)
+    # (row >= startrow(table) && row <= endrow(table) && col >= startcol(table) && col <= endcol(table))
+end
 Base.in(cell::CellDependency, table::ExcelTable) = (cell.sheet_name == table.sheet_name) && ((rownum(cell), colnum(cell)) in table)
 
 function Base.show(io::IO, table::ExcelTable)

@@ -47,13 +47,15 @@ function get_name_to_left(cell_dependency::CellDependency, xf)
     end
 end
 
-function get_name_to_left_no_sheet(cell_dependency::CellDependency, xf)
+function get_name_to_left_no_sheet(cell_dependency::CellDependency, xf::XLSX.XLSXFile)
     to_left = offset(cell_dependency, 0, -1)
     if ismissing(to_left)
         return missing
     end
     sheet = xf[String(to_left.sheet_name)]
-    value = sheet[to_left.cell]
+    c, r = parse_cell(to_left.cell)
+    # value = sheet[to_left.cell]
+    value = XLSX.getdata(sheet, r, c)
     if value isa AbstractString
         normalize_var_name(value)
     else
@@ -61,7 +63,7 @@ function get_name_to_left_no_sheet(cell_dependency::CellDependency, xf)
     end
 end
 
-function make_var_names_map(cell_dependencies, wb::ExcelWorkbook)
+function make_var_names_map(cell_dependencies::Vector{CellDependency}, wb::ExcelWorkbook)
     xf = wb.xf
     workbook = XLSX.get_workbook(xf)
     # named_values = Dict((p[1] => FormulaParser.toexpr(repr(p[2]))) for p in workbook.workbook_names)
@@ -78,13 +80,13 @@ function make_var_names_map(cell_dependencies, wb::ExcelWorkbook)
         end
     end
 
-    output = Dict()
-    rev_dict = Dict()
+    output = Dict{CellDependency, String}()
+    rev_dict = Dict{String, Vector{CellDependency}}()
     for cell in cell_dependencies
         if cell in keys(named_cells)
             name = named_cells[cell]
             output[cell] = name
-            rev_dict[name] = push!(get(rev_dict, name, []), cell)
+            rev_dict[name] = push!(get(rev_dict, name, Vector{CellDependency}()), cell)
         else
             name_to_left = get_name_to_left_no_sheet(cell, xf)
             # name_available = name_to_left ∉ values(output)
@@ -109,7 +111,7 @@ function make_var_names_map(cell_dependencies, wb::ExcelWorkbook)
             # end
 
             output[cell] = name
-            rev_dict[name] = push!(get(rev_dict, name, []), cell)
+            rev_dict[name] = push!(get(rev_dict, name, Vector{CellDependency}()), cell)
         end
     end
 

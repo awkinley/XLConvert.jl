@@ -91,7 +91,7 @@ function export_statement(exporter::JuliaExporter, wb::ExcelWorkbook, statement:
 
         run_cells = sort(statement.assigned_vars)
         if contains_if(expr)
-            function_expr, params = functionalize(expr, [])
+            function_expr, params = functionalize(expr)
             typed_params = Dict{Int64,ExcelExpr}()
             for param_num in eachindex(params)
                 param = params[param_num]
