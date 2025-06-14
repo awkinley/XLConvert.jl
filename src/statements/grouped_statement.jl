@@ -68,10 +68,10 @@ end
 
 function handle(handler::CustomFuncParamHandler, expr, exporter::JuliaExporter, ctx)
     @match expr begin
-        ExcelExpr(:func_param, (param_num,)) => begin
+        ExcelExpr(:func_param, [param_num,]) => begin
             handler.value_getter(param_num, exporter, ctx)
         end
-        ExcelExpr(:func_param, (param_num, type)) => begin
+        ExcelExpr(:func_param, [param_num, type]) => begin
             handler.value_getter(param_num, exporter, ctx)
         end
         _ => missing
@@ -80,7 +80,7 @@ end
 
 function replace_func_params(expr, params_dict)
     @match expr begin
-        ExcelExpr(:func_param, (param_num,)) => get(params_dict, param_num, expr)
+        ExcelExpr(:func_param, [param_num,]) => get(params_dict, param_num, expr)
         ExcelExpr(head, args) => ExcelExpr(head, map(e -> replace_func_params(e, params_dict), args)...)
         _ => expr
     end
@@ -103,8 +103,8 @@ function can_loop_stmts(statements::AbstractArray{AbstractStatement}, functional
     push!(all_params, params)
     # params = []
     for (new_func, func_params) in functionalized[2:end]
-    # for s in statements[2:end]
-    #     new_func, func_params = functionalize(s.rhs_expr, [])
+        # for s in statements[2:end]
+        #     new_func, func_params = functionalize(s.rhs_expr, [])
         if func != new_func
             println("Failed because not all the functions are the same")
             return false
@@ -114,7 +114,7 @@ function can_loop_stmts(statements::AbstractArray{AbstractStatement}, functional
         # append!(params, func_params)
 
     end
-    
+
     # funcs_and_params = [functionalize(s.rhs_expr, []) for s in statements]
     # funcs = [a[1] for a in funcs_and_params]
     # # @show funcs
@@ -146,7 +146,7 @@ function can_loop_stmts(statements::AbstractArray{AbstractStatement}, functional
     col_offset = dcol[1]
 
     # if !all(can_be_for_looped.(eachcol(params[:, changing_params]), row_offset, col_offset))
-    if !all(x -> can_be_for_looped(x, row_offset, col_offset),eachcol(params[:, changing_params]))
+    if !all(x -> can_be_for_looped(x, row_offset, col_offset), eachcol(params[:, changing_params]))
         println("Failed because a changing parameter couldn't be for looped")
         return false
     end
@@ -317,9 +317,9 @@ function try_make_for_loop(exporter::JuliaExporter, wb::ExcelWorkbook, statement
     col_offset = dcol[1]
 
     # if !all(can_be_for_looped.(eachcol(params[:, changing_params]), row_offset, col_offset))
-    if !all(x -> can_be_for_looped(x, row_offset, col_offset),eachcol(params[:, changing_params]))
+    if !all(x -> can_be_for_looped(x, row_offset, col_offset), eachcol(params[:, changing_params]))
         println("Failed because a changing parameter couldn't be for looped")
-        for x in  eachcol(params[:, changing_params])
+        for x in eachcol(params[:, changing_params])
             println(x)
         end
         return missing

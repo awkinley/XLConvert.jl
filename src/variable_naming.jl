@@ -72,7 +72,7 @@ function make_var_names_map(cell_dependencies::Vector{CellDependency}, wb::Excel
     named_cells = Dict()
     for (name, expr) in named_values
         referenced_cell = @match expr begin
-            ExcelExpr(:sheet_ref, (sheet_name, ExcelExpr(:cell_ref, (cell,)))) => CellDependency(sheet_name, cell)
+            ExcelExpr(:sheet_ref, [sheet_name, ExcelExpr(:cell_ref, [cell,])]) => CellDependency(sheet_name, cell)
             _ => missing
         end
         if !ismissing(referenced_cell)
@@ -80,8 +80,8 @@ function make_var_names_map(cell_dependencies::Vector{CellDependency}, wb::Excel
         end
     end
 
-    output = Dict{CellDependency, String}()
-    rev_dict = Dict{String, Vector{CellDependency}}()
+    output = Dict{CellDependency,String}()
+    rev_dict = Dict{String,Vector{CellDependency}}()
     for cell in cell_dependencies
         if cell in keys(named_cells)
             name = named_cells[cell]
@@ -139,7 +139,7 @@ function make_var_names_map(cell_dependencies, xf)
     named_cells = Dict()
     for (name, expr) in named_values
         referenced_cell = @match expr begin
-            ExcelExpr(:sheet_ref, (sheet_name, ExcelExpr(:cell_ref, (cell,)))) => CellDependency(sheet_name, cell)
+            ExcelExpr(:sheet_ref, [sheet_name, ExcelExpr(:cell_ref, [cell,])]) => CellDependency(sheet_name, cell)
             _ => missing
         end
         if !ismissing(referenced_cell)

@@ -75,13 +75,13 @@ function export_statement(exporter::JuliaExporter, wb::ExcelWorkbook, statement:
     expr = statement.rhs_expr
 
     table, lhs_row_idx = @match statement.lhs_expr begin
-        ExcelExpr(:table_ref, (table, row_idx, col_idx, _, _)) => (table, row_idx)
+        ExcelExpr(:table_ref, [table, row_idx, col_idx, _, _]) => (table, row_idx)
         _ => (missing, missing)
     end
 
     function replace_func_params(expr, params_dict)
         @match expr begin
-            ExcelExpr(:func_param, (param_num,)) => get(params_dict, param_num, expr)
+            ExcelExpr(:func_param, [param_num,]) => get(params_dict, param_num, expr)
             ExcelExpr(head, args) => ExcelExpr(head, map(e -> replace_func_params(e, params_dict), args)...)
             _ => expr
         end

@@ -70,7 +70,7 @@ function handle(::BasicOpHandler, expr::ExcelExpr, exporter::JuliaExporter, ctx)
     c = e -> convert(exporter, e, withbindingaffinity(ctx, -1))
     @match expr begin
 
-        ExcelExpr(op, (lhs, rhs)), if op ∈ (:+, :-, :*, :/)
+        ExcelExpr(op, [lhs, rhs]), if op ∈ (:+, :-, :*, :/)
         end => begin
 
             lhs_number = false
@@ -106,17 +106,17 @@ function handle(::BasicOpHandler, expr::ExcelExpr, exporter::JuliaExporter, ctx)
                 binop_str
             end
         end
-        ExcelExpr(:+, (unary,)) => c(unary)
-        ExcelExpr(:-, (unary,)) => "(-1 * " * c(unary) * ")"
-        ExcelExpr(:^, (lhs, rhs)) => "(($(c(lhs))) ^ ($(c(rhs))))"
-        ExcelExpr(:%, (unary)) => "(($(c(unary))) / 100.0)"
-        ExcelExpr(:&, (lhs, rhs)) => "($(c(lhs))* $(c(rhs)))"
-        ExcelExpr(:eq, (lhs, rhs)) => "xl_eq($(c(lhs)), $(c(rhs)))"
-        ExcelExpr(:neq, (lhs, rhs)) => "!xl_eq($(c(lhs)), $(c(rhs)))"
-        ExcelExpr(:leq, (lhs, rhs)) => "xl_leq($(c(lhs)), $(c(rhs)))"
-        ExcelExpr(:geq, (lhs, rhs)) => "xl_geq($(c(lhs)), $(c(rhs)))"
-        ExcelExpr(:lt, (lhs, rhs)) => "xl_lt($(c(lhs)), $(c(rhs)))"
-        ExcelExpr(:gt, (lhs, rhs)) => "xl_gt($(c(lhs)), $(c(rhs)))"
+        ExcelExpr(:+, [unary,]) => c(unary)
+        ExcelExpr(:-, [unary,]) => "(-1 * " * c(unary) * ")"
+        ExcelExpr(:^, [lhs, rhs]) => "(($(c(lhs))) ^ ($(c(rhs))))"
+        ExcelExpr(:%, [unary]) => "(($(c(unary))) / 100.0)"
+        ExcelExpr(:&, [lhs, rhs]) => "($(c(lhs))* $(c(rhs)))"
+        ExcelExpr(:eq, [lhs, rhs]) => "xl_eq($(c(lhs)), $(c(rhs)))"
+        ExcelExpr(:neq, [lhs, rhs]) => "!xl_eq($(c(lhs)), $(c(rhs)))"
+        ExcelExpr(:leq, [lhs, rhs]) => "xl_leq($(c(lhs)), $(c(rhs)))"
+        ExcelExpr(:geq, [lhs, rhs]) => "xl_geq($(c(lhs)), $(c(rhs)))"
+        ExcelExpr(:lt, [lhs, rhs]) => "xl_lt($(c(lhs)), $(c(rhs)))"
+        ExcelExpr(:gt, [lhs, rhs]) => "xl_gt($(c(lhs)), $(c(rhs)))"
         _ => missing
     end
 end
@@ -127,8 +127,8 @@ struct TableRefHandler <: AbstractHandler end
 
 function handle(::TableRefHandler, expr::ExcelExpr, exporter::JuliaExporter, ctx)
     @match expr begin
-        ExcelExpr(:table_ref, (table, row_idx, col_idx, _, _)) => begin
-            # row_idx_str = if row_idx == 1:size(table)[1]
+        ExcelExpr(:table_ref, [table, row_idx, col_idx, _, _]) => begin
+            # row_idx_str = if row_idx == 1:size(table)(1)
             #     ":"
             # elseif row_idx isa Int && length(col_idx) > 1
             #     # Want to avoid slicing into a DataFrameRow, becaue that doesn't broadcast
@@ -277,7 +277,7 @@ end
 struct EverythingElseHandler <: AbstractHandler end
 
 function handle(::EverythingElseHandler, expr::ExcelExpr, exporter::JuliaExporter, ctx)
-    if @ismatch expr ExcelExpr(:range, (ExcelExpr(:cell_ref, (lhs, sheet)), ExcelExpr(:cell_ref, (rhs, sheet))))
+    if @ismatch expr ExcelExpr(:range, [ExcelExpr(:cell_ref, [lhs, sheet]), ExcelExpr(:cell_ref, [rhs, sheet])])
         start_col, start_row = parse_cell(lhs)
         end_col, end_row = parse_cell(rhs)
 
@@ -313,11 +313,11 @@ function handle(::EverythingElseHandler, expr::ExcelExpr, exporter::JuliaExporte
     # @show expr
 
     @match expr begin
-        ExcelExpr(:func_param, (param_num,)) => "param_$param_num"
-        ExcelExpr(:func_param, (param_num, _type)) => "param_$param_num"
-        ExcelExpr(:cell_ref, (cell, sheet)) => exporter.var_names[CellDependency(sheet, cell)]
-        ExcelExpr(:named_range, (name,)) => convert(exporter, get(exporter.named_values, name, "undef_var_$name"), ctx)
-        ExcelExpr(:call, ("IF", cond, t, f)) => begin
+        ExcelExpr(:func_param, [param_num,]) => "param_$param_num"
+        ExcelExpr(:func_param, [param_num, _type]) => "param_$param_num"
+        ExcelExpr(:cell_ref, [cell, sheet]) => exporter.var_names[CellDependency(sheet, cell)]
+        ExcelExpr(:named_range, [name,]) => convert(exporter, get(exporter.named_values, name, "undef_var_$name"), ctx)
+        ExcelExpr(:call, ["IF", cond, t, f]) => begin
             cond_is_bool = get_type(cond, sheetname(ctx), exporter.cell_types, exporter.named_values) == Bool
             if cond_is_bool
                 "($(func(cond)) ? $(func(t)) : $(func(f)))"
@@ -325,9 +325,9 @@ function handle(::EverythingElseHandler, expr::ExcelExpr, exporter::JuliaExporte
                 "(xl_logical($(func(cond))) ? $(func(t)) : $(func(f)))"
             end
         end
-        ExcelExpr(:call, (fn_name, args...)) => xl_call_to_julia(fn_name, map(func, args))
-        ExcelExpr(:broadcast_protect, (expr,)) => "($(func(expr)),)"
-        ExcelExpr(:cols, (sheet, columns)) => "columns($(repr(sheet)), $(repr(columns)))"
+        ExcelExpr(:call, [fn_name, args...]) => xl_call_to_julia(fn_name, map(func, args))
+        ExcelExpr(:broadcast_protect, [expr,]) => "($(func(expr)),)"
+        ExcelExpr(:cols, [sheet, columns]) => "columns($(repr(sheet)), $(repr(columns)))"
         _ => missing
     end
 end

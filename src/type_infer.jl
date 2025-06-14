@@ -125,10 +125,10 @@ function get_type(expr::ExcelExpr, current_sheet, cell_types, key_values)
     c = e -> get_type(e, current_sheet, cell_types, key_values)
 
     @match expr begin
-        ExcelExpr(:+, (lhs, rhs)) => get_type(ExcelAdd(), c(lhs), c(rhs))
-        ExcelExpr(:-, (lhs, rhs)) => get_type(ExcelSub(), c(lhs), c(rhs))
-        ExcelExpr(:*, (lhs, rhs)) => get_type(ExcelMul(), c(lhs), c(rhs))
-        ExcelExpr(:/, (lhs, rhs)) => get_type(ExcelDiv(), c(lhs), c(rhs))
+        ExcelExpr(:+, [lhs, rhs]) => get_type(ExcelAdd(), c(lhs), c(rhs))
+        ExcelExpr(:-, [lhs, rhs]) => get_type(ExcelSub(), c(lhs), c(rhs))
+        ExcelExpr(:*, [lhs, rhs]) => get_type(ExcelMul(), c(lhs), c(rhs))
+        ExcelExpr(:/, [lhs, rhs]) => get_type(ExcelDiv(), c(lhs), c(rhs))
         # ExcelExpr(op, (lhs, rhs)), if op in (:+, :-, :*, :/)
         # end => begin
         #     if c(lhs) == Float64 && c(rhs) == Float64
@@ -138,21 +138,21 @@ function get_type(expr::ExcelExpr, current_sheet, cell_types, key_values)
         #         Any
         #     end
         # end
-        ExcelExpr(:+, (unary,)) => c(unary)
-        ExcelExpr(:-, (unary,)) => c(unary)
-        ExcelExpr(:^, (lhs, rhs)) => Float64
-        ExcelExpr(:%, (unary)) => Float64
-        ExcelExpr(:&, (lhs, rhs)) => String
-        ExcelExpr(:eq, (lhs, rhs)) => Bool
-        ExcelExpr(:neq, (lhs, rhs)) => Bool
-        ExcelExpr(:leq, (lhs, rhs)) => Bool
-        ExcelExpr(:geq, (lhs, rhs)) => Bool
-        ExcelExpr(:lt, (lhs, rhs)) => Bool
-        ExcelExpr(:gt, (lhs, rhs)) => Bool
-        ExcelExpr(:named_range, (name,)) => c(key_values[name])
-        ExcelExpr(:sheet_ref, (sheet_name, ref)) => get_type(ref, sheet_name, cell_types, key_values)
+        ExcelExpr(:+, [unary,]) => c(unary)
+        ExcelExpr(:-, [unary,]) => c(unary)
+        ExcelExpr(:^, [lhs, rhs]) => Float64
+        ExcelExpr(:%, [unary]) => Float64
+        ExcelExpr(:&, [lhs, rhs]) => String
+        ExcelExpr(:eq, [lhs, rhs]) => Bool
+        ExcelExpr(:neq, [lhs, rhs]) => Bool
+        ExcelExpr(:leq, [lhs, rhs]) => Bool
+        ExcelExpr(:geq, [lhs, rhs]) => Bool
+        ExcelExpr(:lt, [lhs, rhs]) => Bool
+        ExcelExpr(:gt, [lhs, rhs]) => Bool
+        ExcelExpr(:named_range, [name,]) => c(key_values[name])
+        ExcelExpr(:sheet_ref, [sheet_name, ref]) => get_type(ref, sheet_name, cell_types, key_values)
 
-        ExcelExpr(:table_ref, (table, row_idx, col_idx, _, _)) => begin
+        ExcelExpr(:table_ref, [table, row_idx, col_idx, _, _]) => begin
             rows = startrow(table) .+ row_idx .- 1
             cols = startcol(table) .+ col_idx .- 1
 
@@ -163,7 +163,7 @@ function get_type(expr::ExcelExpr, current_sheet, cell_types, key_values)
 
             types
         end
-        ExcelExpr(:range, (ExcelExpr(:cell_ref, (lhs, sheet)), ExcelExpr(:cell_ref, (rhs, sheet)))) => begin
+        ExcelExpr(:range, [ExcelExpr(:cell_ref, [lhs, sheet]), ExcelExpr(:cell_ref, [rhs, sheet])]) => begin
             start_col, start_row = parse_cell(lhs)
             end_col, end_row = parse_cell(rhs)
 
@@ -181,11 +181,11 @@ function get_type(expr::ExcelExpr, current_sheet, cell_types, key_values)
             # @info "get_type(::ExcelExpr) returning Any for range" args
             Any
         end
-        ExcelExpr(:cell_ref, (cell, sheet)) => begin
+        ExcelExpr(:cell_ref, [cell, sheet]) => begin
             cell_dep = CellDependency(sheet, cell)
             get(cell_types, cell_dep, Any)
         end
-        ExcelExpr(:call, ("IF", cond, t, f)) => begin
+        ExcelExpr(:call, ["IF", cond, t, f]) => begin
             t_type = c(t)
             f_type = c(f)
             res = union_types(t_type, f_type)
@@ -199,7 +199,7 @@ function get_type(expr::ExcelExpr, current_sheet, cell_types, key_values)
             #     Set{Type}((t_type, f_type))
             # end
         end
-        ExcelExpr(:call, (fn_name, args...)) => begin
+        ExcelExpr(:call, [fn_name, args...]) => begin
             number_returning_funcs = [
                 "SUM",
                 "AVERAGE",
@@ -250,7 +250,7 @@ function get_type(expr::ExcelExpr, current_sheet, cell_types, key_values)
             end
             # fn_name in number_returning_funcs ? Float64 : Any
         end
-        ExcelExpr(:func_param, (idx, type)) => type
+        ExcelExpr(:func_param, [idx, type]) => type
         default => begin
             # println("Type of $default is Any")
             Any

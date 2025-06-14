@@ -9,12 +9,12 @@ end
 
 ValueCell = ValueCell1
 
-struct FormulaCell2
+struct FormulaCell
     cell::XLSX.Cell
     expr::Union{ExcelExpr,Float64,Int64,String,Missing}
 end
 
-FormulaCell = FormulaCell2
+# FormulaCell = FormulaCell2
 
 CellTypes = Union{ValueCell,FormulaCell}
 
@@ -52,13 +52,13 @@ end
 
 function lower_sheet_names(expr::ExcelExpr, current_sheet::AbstractString)
     @match expr begin
-        ExcelExpr(:cell_ref, (cell,)) => ExcelExpr(:cell_ref, cell, current_sheet)
-        ExcelExpr(:cols, (columns,)) => begin
+        ExcelExpr(:cell_ref, [cell,]) => ExcelExpr(:cell_ref, cell, current_sheet)
+        ExcelExpr(:cols, [columns,]) => begin
             println("Got column expr")
             @show expr
             ExcelExpr(:cols, current_sheet, columns)
         end
-        ExcelExpr(:sheet_ref, (sheet_name, ref)) => lower_sheet_names(ref, sheet_name)
+        ExcelExpr(:sheet_ref, [sheet_name, ref]) => lower_sheet_names(ref, sheet_name)
         ExcelExpr(op, args) => begin
             ExcelExpr(op, lower_sheet_names.(args, current_sheet)...)
         end
@@ -78,18 +78,19 @@ function get_cell_dict(xl)
         for ref_formula_cell in filter(is_ref_formula, all_cells)
             cell_dep = CellDependency(sheet_name, ref_formula_cell.ref.name)
 
-            try
-                # expression = toexpr(parse_formula(ref_formula_cell.formula.formula))
-                # expression = FormulaParser.toexpr(ref_formula_cell.formula.formula)
-                expression = toexpr(ref_formula_cell.formula.formula)
-                cell_dict[cell_dep] = FormulaCell(ref_formula_cell, lower_sheet_names(expression, sheet_name))
+            # try
+            # expression = toexpr(parse_formula(ref_formula_cell.formula.formula))
+            # expression = FormulaParser.toexpr(ref_formula_cell.formula.formula)
+            expression = toexpr(ref_formula_cell.formula.formula)
+            cell_dict[cell_dep] = FormulaCell(ref_formula_cell, lower_sheet_names(expression, sheet_name))
+            # cell_dict[cell_dep] = FormulaCell(ref_formula_cell, expression)
 
-                ref_cells_dict[ref_formula_cell.formula.id] = cell_dep
+            ref_cells_dict[ref_formula_cell.formula.id] = cell_dep
 
-            catch e
-                @show cell_dep
-                @show ref_formula_cell.formula.formula
-            end
+            # catch e
+            #     @show cell_dep
+            #     @show ref_formula_cell.formula.formula
+            # end
         end
 
         for cell in filter(!is_ref_formula, all_cells)

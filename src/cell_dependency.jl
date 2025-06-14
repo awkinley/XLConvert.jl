@@ -33,6 +33,8 @@ function offset(cell::CellDependency, rows::Int, cols::Int)
     CellDependency(cell.sheet_name, string(new_col, new_row))
 end
 
+get_coords(cell::CellDependency) = parse_cell(cell.cell)
+
 function rownum(cell::CellDependency)
     cell_match = match(cell_parse_rgx, cell.cell)
     @assert cell_match.match == cell.cell "Cell didn't parse properly"

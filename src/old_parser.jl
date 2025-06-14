@@ -155,7 +155,7 @@ function offset(expr::ExcelExpr, rows::Int, cols::Int)
             end
             ExcelExpr(:cell_ref, String(new_col * new_row), args[2:end]...)
         end
-        ExcelExpr(:table_ref, (table, row_idx, col_idx, fixed_row, fixed_col)) => begin
+        ExcelExpr(:table_ref, [table, row_idx, col_idx, fixed_row, fixed_col]) => begin
             row_idx = @match fixed_row begin
                 (true, true) => row_idx
                 (false, false) => row_idx .+ rows

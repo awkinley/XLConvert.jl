@@ -316,10 +316,10 @@ end
 
 function get_expr_dependencies(expr::ExcelExpr, key_values::Dict)
     @match expr begin
-        ExcelExpr(:cell_ref, (cell, sheet)) => [CellDependency(sheet, cell)]
+        ExcelExpr(:cell_ref, [cell, sheet]) => [CellDependency(sheet, cell)]
         # ExcelExpr(:sheet_ref, (sheet_name, ref)) => get_expr_dependencies(ref, key_values)
-        ExcelExpr(:named_range, (name,)) => get_expr_dependencies(key_values[name], key_values)
-        ExcelExpr(:range, (ExcelExpr(:cell_ref, (lhs, sheet)), ExcelExpr(:cell_ref, (rhs, sheet)))) => begin
+        ExcelExpr(:named_range, [name,]) => get_expr_dependencies(key_values[name], key_values)
+        ExcelExpr(:range, [ExcelExpr(:cell_ref, [lhs, sheet]), ExcelExpr(:cell_ref, [rhs, sheet])]) => begin
             start_col, start_row = parse_cell(lhs)
             end_col, end_row = parse_cell(rhs)
 
@@ -335,7 +335,7 @@ function get_expr_dependencies(expr::ExcelExpr, key_values::Dict)
             flattened
         end
         # TODO: Handle?
-        ExcelExpr(:range, (lhs, rhs)) => throw("Don't know how to get dependencies for $(expr)")
+        ExcelExpr(:range, [lhs, rhs]) => throw("Don't know how to get dependencies for $(expr)")
         ExcelExpr(op, args) => begin
             mapped = map(a -> get_expr_dependencies(a, key_values), args)
             reduce(vcat, mapped)
@@ -366,7 +366,7 @@ function get_topo_levels_bottom_up(wb::WorkbookSubset)
     topo_levels = Dict{Int64,Int64}()
     for node in filter(v -> v ∈ wb.used_nodes, topo_sorted)
         dependencies = outneighbors(wb.graph, node)
-        topo_levels[node] = maximum(map(k -> topo_levels[k] + 1, dependencies); init=0)
+        topo_levels[node] = maximum(k -> topo_levels[k] + 1, dependencies; init=0)
     end
 
     topo_levels
@@ -378,7 +378,7 @@ function get_topo_levels_bottom_up(graph::SimpleDiGraph)
     topo_levels = Dict{Int64,Int64}()
     for node in topo_sorted
         dependencies = outneighbors(graph, node)
-        topo_levels[node] = maximum(map(k -> topo_levels[k] + 1, dependencies); init=0)
+        topo_levels[node] = maximum(k -> topo_levels[k] + 1, dependencies; init=0)
     end
 
     topo_levels
@@ -393,7 +393,8 @@ function get_topo_levels_top_down(graph::SimpleDiGraph)
         # because it's not possible for a cell to depend on a value not in used_nodes
         # but it is possible for a cell not in used_nodes to depend on one that is
         dependents = inneighbors(graph, node)
-        topo_levels[node] = minimum(map(k -> topo_levels[k] - 1, dependents); init=0)
+        # topo_levels[node] = minimum(map(k -> topo_levels[k] - 1, dependents); init=0)
+        topo_levels[node] = minimum(k -> topo_levels[k] - 1, dependents; init=0)
     end
 
     # Will be a negative number
@@ -417,7 +418,7 @@ function get_topo_levels_top_down(wb::WorkbookSubset)
         # because it's not possible for a cell to depend on a value not in used_nodes
         # but it is possible for a cell not in used_nodes to depend on one that is
         dependents = filter(in(wb.used_nodes), inneighbors(wb.graph, node))
-        topo_levels[node] = minimum(map(k -> topo_levels[k] - 1, dependents); init=0)
+        topo_levels[node] = minimum(k -> topo_levels[k] - 1, dependents; init=0)
     end
 
     # Will be a negative number
@@ -442,7 +443,7 @@ insert_table_refs(expr, tables) = expr
 function insert_table_refs(expr::ExcelExpr, tables)
     # @info "In primary insert_table_refs" expr
     @match expr begin
-        ExcelExpr(:cell_ref, (cell, sheet)) => begin
+        ExcelExpr(:cell_ref, [cell, sheet]) => begin
             c, r = parse_cell(cell)
             for table in tables
                 if (sheet == table.sheet_name
@@ -469,7 +470,7 @@ function insert_table_refs(expr::ExcelExpr, tables)
         end
         # ExcelExpr(:sheet_ref, (sheet_name, ref)) => ExcelExpr(:sheet_ref, sheet_name, insert_table_refs(ref, tables))
         # ExcelExpr(:named_range, (name,)) => convert_to_broadcasted(get_key_value(ctx, name), ctx, row_offset, col_offset)
-        ExcelExpr(:range, (ExcelExpr(:cell_ref, (lhs, sheet)), ExcelExpr(:cell_ref, (rhs, sheet)))) => begin
+        ExcelExpr(:range, [ExcelExpr(:cell_ref, [lhs, sheet]), ExcelExpr(:cell_ref, [rhs, sheet])]) => begin
             start_c, start_r = parse_cell(lhs)
             stop_c, stop_r = parse_cell(rhs)
             # @info "found range" start_c start_r stop_c stop_r
@@ -477,10 +478,12 @@ function insert_table_refs(expr::ExcelExpr, tables)
             for table in tables
                 # @info "Checking table" ctx.current_sheet == table.sheet_name start_c >= startcol(table) stop_c <= endcol(table) start_r >= startrow(table) stop_r <= endrow(table)
                 if (sheet == table.sheet_name
-                    && start_c >= startcol(table)
-                    && stop_c <= endcol(table)
-                    && start_r >= startrow(table)
-                    && stop_r <= endrow(table))
+                    && (start_r, start_c) in table 
+                    && (stop_r, stop_c) in table)
+                    # && start_c >= startcol(table)
+                    # && stop_c <= endcol(table)
+                    # && start_r >= startrow(table)
+                    # && stop_r <= endrow(table))
                     # @info "Found a matching table"
                     # col_names = [column_name(table, c - startcol(table) + 1) for c in start_c:stop_c]
                     # col_idx = [c - startcol(table) + 1 for c in start_c:stop_c]
@@ -500,10 +503,13 @@ function insert_table_refs(expr::ExcelExpr, tables)
             end
             expr
         end
-        ExcelExpr(:range, (lhs, rhs)) => throw("Don't know how to get dependencies for $(expr)")
+        ExcelExpr(:range, [lhs, rhs]) => throw("Don't know how to get dependencies for $(expr)")
         ExcelExpr(op, args) => begin
-            mapped = map(a -> insert_table_refs(a, tables), args)
-            ExcelExpr(op, mapped...)
+            new_args = similar(args)
+            map!(a -> insert_table_refs(a, tables), new_args, args)
+            # mapped = map(a -> insert_table_refs(a, tables), args)
+            # ExcelExpr(op, mapped...)
+            ExcelExpr(op, new_args)
             # reduce(vcat, mapped)
         end
     end
@@ -593,15 +599,30 @@ function DefTable(xf::XLSX.XLSXFile, sheet_name, table_name, top_left, bottom_ri
     )
 end
 
+function group_to_dict(values, get_key)
+    res = Dict()
+    for value in values
+        k = get_key(value)
+        push!(get!(Vector, res, k), value)
+        # if haskey(res, k)
+        #     push!(res[k], value)
+        # else
+        #     res[k] = [value]
+        # end
+    end
+    res
+end
+
 function group_to_dict(values::AbstractArray{T}, get_key) where {T}
     res = Dict()
     for value in values
         k = get_key(value)
-        if haskey(res, k)
-            push!(res[k], value)
-        else
-            res[k] = [value]
-        end
+        push!(get!(Vector, res, k), value)
+        # if haskey(res, k)
+        #     push!(res[k], value)
+        # else
+        #     res[k] = [value]
+        # end
     end
     res
 end
@@ -638,7 +659,7 @@ end
 contains_if(expr) = false
 function contains_if(expr::ExcelExpr)
     @match expr begin
-        ExcelExpr(:call, ("IF", args...)) => begin
+        ExcelExpr(:call, ["IF", args...]) => begin
             true
         end
         ExcelExpr(op, args) => begin
@@ -651,7 +672,7 @@ convert_to_broadcasted(expr, row_offset, col_offset) = expr
 
 function convert_to_broadcasted(expr::ExcelExpr, row_offset, col_offset)
     @match expr begin
-        ExcelExpr(:cell_ref, (cell, sheet)) => begin
+        ExcelExpr(:cell_ref, [cell, sheet]) => begin
             range_start = CellDependency(sheet, cell)
             stop_cell = offset(expr, row_offset, col_offset).args[1]
             range_stop = CellDependency(sheet, stop_cell)
@@ -666,7 +687,7 @@ function convert_to_broadcasted(expr::ExcelExpr, row_offset, col_offset)
         end
         # ExcelExpr(:sheet_ref, (sheet_name, ref)) => ExcelExpr(:sheet_ref, sheet_name, convert_to_broadcasted(ref, sheet_name, row_offset, col_offset))
         # ExcelExpr(:named_range, (name,)) => convert_to_broadcasted(get_key_value(ctx, name), ctx, row_offset, col_offset)
-        ExcelExpr(:range, (ExcelExpr(:cell_ref, (lhs, sheet)), ExcelExpr(:cell_ref, (rhs, sheet)))) => begin
+        ExcelExpr(:range, [ExcelExpr(:cell_ref, [lhs, sheet]), ExcelExpr(:cell_ref, [rhs, sheet])]) => begin
             function is_fixed(cell)
                 offset_cell_parse_rgx = r"([$]?[A-Z]+)([$]?[0-9]+)"
                 cell_match = match(offset_cell_parse_rgx, cell)
@@ -684,7 +705,7 @@ function convert_to_broadcasted(expr::ExcelExpr, row_offset, col_offset)
             end
         end
 
-        ExcelExpr(:table_ref, (table, row_idx, col_idx, fixed_row, fixed_col)) => begin
+        ExcelExpr(:table_ref, [table, row_idx, col_idx, fixed_row, fixed_col]) => begin
             if fixed_row == (true, true) && fixed_col == (true, true)
                 return ExcelExpr(:broadcast_protect, expr)
             end
@@ -720,7 +741,7 @@ function convert_to_broadcasted(expr::ExcelExpr, row_offset, col_offset)
         # ExcelExpr(:call, ("IF", args...)) => begin
         #     throw("Broadcasting if doesn't work!")
         # end
-        ExcelExpr(:range, (lhs, rhs)) => throw("Don't know how to get dependencies for $(expr)")
+        ExcelExpr(:range, [lhs, rhs]) => throw("Don't know how to get dependencies for $(expr)")
         ExcelExpr(op, args) => begin
             mapped = map(a -> convert_to_broadcasted(a, row_offset, col_offset), args)
             ExcelExpr(op, mapped...)
@@ -729,41 +750,176 @@ function convert_to_broadcasted(expr::ExcelExpr, row_offset, col_offset)
     end
 end
 
-function functionalize(expr, previous_params::Matrix{ExcelExpr})
-    (expr, previous_params)
+function functionalize!(expr, previous_params::Vector{ExcelExpr})
+    expr
 end
-function functionalize(expr::ExcelExpr, previous_params::Matrix{ExcelExpr})
-    @match expr begin
-        ExcelExpr(:cell_ref, (cell, sheet)) => begin
-            (ExcelExpr(:func_param, length(previous_params) + 1), [previous_params... expr])
-        end
-        ExcelExpr(:sheet_ref, (sheet_name, ref)) => (ExcelExpr(:func_param, length(previous_params) + 1), [previous_params... expr])
-        ExcelExpr(:named_range, (name,)) => (ExcelExpr(:func_param, length(previous_params) + 1), [previous_params... expr])
-        ExcelExpr(:range, args) => begin
-            (ExcelExpr(:func_param, length(previous_params) + 1), [previous_params... expr])
-        end
 
-        ExcelExpr(:table_ref, args) => (ExcelExpr(:func_param, length(previous_params) + 1), [previous_params... expr])
-
-        # ExcelExpr(:call, ("IF", args...)) => begin
-        #     throw("Broadcasting if doesn't work!")
-        # end
-        # ExcelExpr(:range, (lhs, rhs)) => throw("Don't know how to get dependencies for $(expr)")
-        ExcelExpr(op, args) => begin
-            mapped_exprs = []
-            for a in args
-                e, previous_params = functionalize(a, previous_params)
-                push!(mapped_exprs, e)
+function functionalize_at!(exprs::Vector{Any}, index::Int, previous_params::Vector{ExcelExpr})
+    expr = exprs[index]
+    if expr isa ExcelExpr
+        if expr.head in (:cell_ref, :sheet_ref, :named_range, :range, :table_ref)
+            push!(previous_params, expr)
+            exprs[index] = ExcelExpr(:func_param, length(previous_params))
+        else
+            for i in eachindex(expr.args)
+                functionalize_at!(expr.args, i, previous_params)
             end
-            # mapped = map(a -> functionalize(a, ctx, previous_params), args)
-            (ExcelExpr(op, mapped_exprs...), previous_params)
-            # reduce(vcat, mapped)
+
         end
     end
 end
 
+function functionalize!(expr::ExcelExpr, previous_params::Vector{ExcelExpr})
+    if expr.head in (:cell_ref, :sheet_ref, :named_range, :range, :table_ref)
+        push!(previous_params, expr)
+        return ExcelExpr(:func_param, length(previous_params))
+    end
+
+    for i in eachindex(expr.args)
+        functionalize_at!(expr.args, i, previous_params)
+    end
+
+    expr
+
+    # @match expr begin
+    #     ExcelExpr(:cell_ref, [cell, sheet]) => begin
+    #         push!(previous_params, expr)
+    #         ExcelExpr(:func_param, length(previous_params))
+    #     end
+    #     ExcelExpr(:sheet_ref, [sheet_name, ref]) => begin
+    #         push!(previous_params, expr)
+    #         ExcelExpr(:func_param, length(previous_params))
+    #     end
+    #     ExcelExpr(:named_range, [name,]) => begin 
+    #         push!(previous_params, expr)
+    #         ExcelExpr(:func_param, length(previous_params))
+    #     end
+    #     ExcelExpr(:range, args) => begin
+    #         push!(previous_params, expr)
+    #         ExcelExpr(:func_param, length(previous_params))
+    #     end
+    #     ExcelExpr(:table_ref, args) => begin
+    #         push!(previous_params, expr)
+    #         ExcelExpr(:func_param, length(previous_params))
+    #     end
+
+    #     ExcelExpr(op, args) => begin
+    #         mapped_exprs = similar(args)
+    #         # mapped_exprs = []
+    #         # for a in args
+    #         for i in eachindex(args)
+    #             if args[i] isa ExcelExpr
+    #                 e, previous_params = functionalize(args[i], previous_params)
+    #                 mapped_exprs[i] = e
+    #             else
+    #                 mapped_exprs[i] = args[i]
+    #             end
+    #             # push!(mapped_exprs, e)
+    #         end
+    #         # mapped = map(a -> functionalize(a, ctx, previous_params), args)
+    #         # (ExcelExpr(op, mapped_exprs...), previous_params)
+    #         (ExcelExpr(op, mapped_exprs), previous_params)
+    #         # reduce(vcat, mapped)
+    #     end
+    # end
+end
+
+function functionalize(expr, previous_params::Vector{ExcelExpr})
+    expr
+end
+function functionalize(expr::ExcelExpr, previous_params::Vector{ExcelExpr})
+    if expr.head in (:cell_ref, :sheet_ref, :named_range, :range, :table_ref)
+        # (ExcelExpr(:func_param, Any[length(previous_params) + 1]), [previous_params... expr])
+        push!(previous_params, expr)
+        ExcelExpr(:func_param, length(previous_params))
+    else
+        op = expr.head
+        args = expr.args
+        mapped_exprs = similar(args)
+        for i in eachindex(args)
+            if typeof(args[i]) == ExcelExpr
+                mapped_exprs[i] = functionalize(args[i], previous_params)
+            else
+                mapped_exprs[i] = args[i]
+            end
+        end
+        ExcelExpr(op, mapped_exprs)
+    end
+end
+
+function functionalize(expr, previous_params::Matrix{ExcelExpr})
+    (expr, previous_params)
+end
+function functionalize(expr::ExcelExpr, previous_params::Matrix{ExcelExpr})
+    if expr.head in (:cell_ref, :sheet_ref, :named_range, :range, :table_ref)
+        (ExcelExpr(:func_param, Any[length(previous_params) + 1]), [previous_params... expr])
+        # push!(previous_params, expr)
+        # return ExcelExpr(:func_param, length(previous_params))
+    else
+        op = expr.head
+        args = expr.args
+        mapped_exprs = similar(args)
+        # mapped_exprs = []
+        # for a in args
+        for i in eachindex(args)
+            if typeof(args[i]) == ExcelExpr
+                e, previous_params = functionalize(args[i], previous_params)
+                mapped_exprs[i] = e
+            else
+                mapped_exprs[i] = args[i]
+            end
+            # push!(mapped_exprs, e)
+        end
+        # mapped = map(a -> functionalize(a, ctx, previous_params), args)
+        # (ExcelExpr(op, mapped_exprs...), previous_params)
+        (ExcelExpr(op, mapped_exprs), previous_params)
+    end
+    # @match expr begin
+    #     ExcelExpr(:cell_ref, [cell, sheet]) => begin
+    #         (ExcelExpr(:func_param, length(previous_params) + 1), [previous_params... expr])
+    #     end
+    #     ExcelExpr(:sheet_ref, [sheet_name, ref]) => (ExcelExpr(:func_param, length(previous_params) + 1), [previous_params... expr])
+    #     ExcelExpr(:named_range, [name,]) => (ExcelExpr(:func_param, length(previous_params) + 1), [previous_params... expr])
+    #     ExcelExpr(:range, args) => begin
+    #         (ExcelExpr(:func_param, length(previous_params) + 1), [previous_params... expr])
+    #     end
+
+    #     ExcelExpr(:table_ref, args) => (ExcelExpr(:func_param, length(previous_params) + 1), [previous_params... expr])
+
+    #     # ExcelExpr(:call, ("IF", args...)) => begin
+    #     #     throw("Broadcasting if doesn't work!")
+    #     # end
+    #     # ExcelExpr(:range, (lhs, rhs)) => throw("Don't know how to get dependencies for $(expr)")
+    #     ExcelExpr(op, args) => begin
+    #         mapped_exprs = similar(args)
+    #         # mapped_exprs = []
+    #         # for a in args
+    #         for i in eachindex(args)
+    #             if args[i] isa ExcelExpr
+    #                 e, previous_params = functionalize(args[i], previous_params)
+    #                 mapped_exprs[i] = e
+    #             else
+    #                 mapped_exprs[i] = args[i]
+    #             end
+    #             # push!(mapped_exprs, e)
+    #         end
+    #         # mapped = map(a -> functionalize(a, ctx, previous_params), args)
+    #         # (ExcelExpr(op, mapped_exprs...), previous_params)
+    #         (ExcelExpr(op, mapped_exprs), previous_params)
+    #         # reduce(vcat, mapped)
+    #     end
+    # end
+end
+
 function functionalize(expr)
-    functionalize(expr, Matrix{ExcelExpr}(undef, 0, 0))
+    params = Vector{ExcelExpr}()
+    new_expr = functionalize(expr, params)
+    (new_expr, permutedims(params))
+
+    # params = Vector{ExcelExpr}()
+    
+    # new_expr = functionalize!(deepcopy(expr), params)
+    # (new_expr, permutedims(params))
 end
 
 function compute_delayed_grouping(graph, used_nodes, max_level)
@@ -1134,7 +1290,7 @@ end
 function find_table_containing_cell(cell::CellDependency, tables)
     r = rownum(cell)
     c = colnum(cell)
-    findfirst(t -> cell.sheet_name == t.sheet_name &&  ((r, c) in t), tables)
+    findfirst(t -> cell.sheet_name == t.sheet_name && ((r, c) in t), tables)
 end
 
 
@@ -1241,9 +1397,10 @@ function make_statement_graph(statements::Vector{AbstractStatement})
     #     end
     # end
 
-    statement_nums = Dict{AbstractStatement, Int64}([n => i for (i, n) in enumerate(statements)])
+    statement_nums = Dict{AbstractStatement,Int64}([n => i for (i, n) in enumerate(statements)])
+    # adj_matrix = zeros(Bool, (length(statements), length(statements)))
 
-    edge_list = Vector{Edge}()
+    edge_list = Vector{Edge{Int64}}()
     for statement in statements
         start_node = statement_nums[statement]
         cell_deps::Vector{CellDependency} = get_cell_deps(statement)
@@ -1259,6 +1416,7 @@ function make_statement_graph(statements::Vector{AbstractStatement})
             # In cases like grouped statements, it's possible for nodes to depend on themselves
             # we should just be able to ignore that
             if start_node != end_node
+                # adj_matrix[start_node, end_node] = true
                 push!(edge_list, Edge(start_node, end_node))
             end
         end
@@ -1269,7 +1427,9 @@ function make_statement_graph(statements::Vector{AbstractStatement})
     # edge_list = reduce(vcat, nested_edge_list)
 
     # graph = Graphs.SimpleDiGraphFromIterator(Edge.(edge_list))
-    graph = Graphs.SimpleDiGraphFromIterator(edge_list)
+    # graph = Graphs.SimpleDiGraphFromIterator(edge_list)
+    graph = Graphs.SimpleDiGraph(edge_list)
+    # graph = Graphs.SimpleDiGraph(adj_matrix)
 
     cycles = Graphs.simplecycles(graph)
     if !isempty(cycles)
@@ -1795,7 +1955,7 @@ function is_data_copy_statement(stmt::TableStatement)
 
     @match stmt.rhs_expr begin
         ExcelExpr(:cell_ref, _) => true
-        ExcelExpr(:table_ref, (table, row_idx, col_idx, _, _)) => length(row_idx) == 1 && length(col_idx) == 1
+        ExcelExpr(:table_ref, [table, row_idx, col_idx, _, _]) => length(row_idx) == 1 && length(col_idx) == 1
         _ => false
     end
 end

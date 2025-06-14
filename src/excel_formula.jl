@@ -14,6 +14,37 @@ include("./functions/comparison.jl")
 flatten(arr::AbstractArray) = reduce(vcat, arr)
 flatten(arr) = arr
 
+function offset_cell_str(cell::String, rows::Int, cols::Int)
+    first_let = findfirst(c -> 'A' <= c <= 'Z', cell)
+    first_num = findfirst(isdigit, cell)
+
+    col_str = if cell[first_num-1] == '$'
+        @view cell[first_let:first_num-2]
+    else
+        @view cell[first_let:first_num-1]
+    end
+    row_str = @view cell[first_num:end]
+
+    if cell[1] == '$'
+        new_col = col_str
+    else
+        new_col_num = XLSX.decode_column_number(col_str) + cols
+        # This allows for (invalid) offsetting of expressions into negative columns
+        if new_col_num >= 1
+            new_col = XLSX.encode_column_number(new_col_num)
+        else
+            new_col = string(new_col_num)
+        end
+    end
+    if cell[first_num-1] == '$'
+        new_row = row_str
+    else
+        new_row = string(parse(Int, row_str) + rows)
+    end
+
+    new_col * new_row
+end
+
 
 function offset(value, ::Int, ::Int)
     value
@@ -25,30 +56,32 @@ function offset(expr::ExcelExpr, rows::Int, cols::Int)
 
     @match expr begin
         ExcelExpr(:cell_ref, args) => begin
-            cell_match = match(offset_cell_parse_rgx, args[1])
-            @assert cell_match.match == args[1] "Cell didn't parse properly"
-            col_str = cell_match[1]
-            row_str = cell_match[2]
+            new_cell = offset_cell_str(args[1], rows, cols)
+            ExcelExpr(:cell_ref, new_cell, args[2:end]...)
+            # cell_match = match(offset_cell_parse_rgx, args[1])
+            # @assert cell_match.match == args[1] "Cell didn't parse properly"
+            # col_str = cell_match[1]
+            # row_str = cell_match[2]
 
-            if col_str[1] == '$'
-                new_col = col_str
-            else
-                new_col_num = XLSX.decode_column_number(col_str[1:end]) + cols
-                # This allows for (invalid) offsetting of expressions into negative columns
-                if new_col_num >= 1
-                    new_col = XLSX.encode_column_number(new_col_num)
-                else
-                    new_col = string(new_col_num)
-                end
-            end
-            if row_str[1] == '$'
-                new_row = row_str
-            else
-                new_row = string(parse(Int, row_str) + rows)
-            end
-            ExcelExpr(:cell_ref, String(new_col * new_row), args[2:end]...)
+            # if col_str[1] == '$'
+            #     new_col = col_str
+            # else
+            #     new_col_num = XLSX.decode_column_number(col_str[1:end]) + cols
+            #     # This allows for (invalid) offsetting of expressions into negative columns
+            #     if new_col_num >= 1
+            #         new_col = XLSX.encode_column_number(new_col_num)
+            #     else
+            #         new_col = string(new_col_num)
+            #     end
+            # end
+            # if row_str[1] == '$'
+            #     new_row = row_str
+            # else
+            #     new_row = string(parse(Int, row_str) + rows)
+            # end
+            # ExcelExpr(:cell_ref, String(new_col * new_row), args[2:end]...)
         end
-        ExcelExpr(:table_ref, (table, row_idx, col_idx, fixed_row, fixed_col)) => begin
+        ExcelExpr(:table_ref, [table, row_idx, col_idx, fixed_row, fixed_col]) => begin
             row_idx = @match fixed_row begin
                 (true, true) => row_idx
                 (false, false) => row_idx .+ rows
@@ -64,7 +97,15 @@ function offset(expr::ExcelExpr, rows::Int, cols::Int)
 
             ExcelExpr(:table_ref, table, row_idx, col_idx, fixed_row, fixed_col)
         end
-        _ => ExcelExpr(head, map(x -> offset(x, rows, cols), args))
+        _ => begin
+            new_args = similar(args)
+            for i in eachindex(args)
+                new_args[i] = offset(args[i], rows, cols)
+            end
+            # map!(x -> offset(x, rows, cols), new_args, args)
+            # ExcelExpr(head, map(x -> offset(x, rows, cols), args)...)
+            ExcelExpr(head, new_args)
+        end
     end
 end
 
@@ -116,10 +157,10 @@ function parse_cell(cell::T) where {T<:AbstractString}
     first_let = findfirst(c -> 'A' <= c <= 'Z', cell)
     first_num = findfirst(isdigit, cell)
     # cell_match = match(cell_parse_rgx, cell)
-    col_str = if cell[first_num - 1] == '$'
-        @view cell[first_let:first_num - 2]
+    col_str = if cell[first_num-1] == '$'
+        @view cell[first_let:first_num-2]
     else
-        @view cell[first_let:first_num - 1]
+        @view cell[first_let:first_num-1]
     end
     # @assert cell_match.match == cell "Cell didn't parse properly"
     # col_str = cell_match[1]
@@ -160,27 +201,27 @@ function eval(expr::ExcelExpr, ctx::ExcelContext)
 end
 function exec(expr::ExcelExpr, ctx::ExcelContext)
     result = @match expr begin
-        ExcelExpr(:cell_ref, (cell,)) => get_cell_value(ctx, clean_cell(cell))
-        ExcelExpr(:cell_ref, (cell, sheet)) => get_cell_value(ctx, clean_cell(cell))
-        ExcelExpr(:+, (unary,)) => exec(unary, ctx)
-        ExcelExpr(:+, (lhs, rhs)) => xl_add(missing_to(exec(lhs, ctx)), missing_to(exec(rhs, ctx)))
-        ExcelExpr(:-, (unary,)) => -1 * exec(unary, ctx)
-        ExcelExpr(:-, (lhs, rhs)) => xl_sub(missing_to(exec(lhs, ctx)), missing_to(exec(rhs, ctx)))
-        ExcelExpr(:*, (lhs, rhs)) => missing_to(exec(lhs, ctx)) * missing_to(exec(rhs, ctx))
-        ExcelExpr(:/, (lhs, rhs)) => missing_to(exec(lhs, ctx)) / missing_to(exec(rhs, ctx))
-        ExcelExpr(:^, (lhs, rhs)) => exec(lhs, ctx)^exec(rhs, ctx)
-        ExcelExpr(:&, (lhs, rhs)) => string(exec(lhs, ctx), exec(rhs, ctx))
-        ExcelExpr(:eq, (lhs, rhs)) => xl_eq(exec(lhs, ctx), exec(rhs, ctx))
-        ExcelExpr(:neq, (lhs, rhs)) => !xl_eq(exec(lhs, ctx), exec(rhs, ctx))
-        ExcelExpr(:leq, (lhs, rhs)) => xl_leq(exec(lhs, ctx), exec(rhs, ctx))
-        ExcelExpr(:geq, (lhs, rhs)) => xl_geq(exec(lhs, ctx), exec(rhs, ctx))
-        ExcelExpr(:lt, (lhs, rhs)) => xl_lt(exec(lhs, ctx), exec(rhs, ctx))
-        ExcelExpr(:gt, (lhs, rhs)) => xl_gt(exec(lhs, ctx), exec(rhs, ctx))
-        ExcelExpr(:range, (lhs, rhs)) => rangetomatrix(ctx, exec_to_cell(lhs), exec_to_cell(rhs))
-        ExcelExpr(:sheet_ref, (sheet_name, ref)) => exec(ref, with_current_sheet(ctx, sheet_name))
-        ExcelExpr(:named_range, (name,)) => exec(get_key_value(ctx, name), ctx)
-        ExcelExpr(:call, ("IF", args...)) => xl_logical(eval(args[1], ctx)) ? exec(args[2], ctx) : exec(args[3], ctx)
-        ExcelExpr(:call, (fn_name, args...)) => eval_function(ctx, fn_name, args)
+        ExcelExpr(:cell_ref, [cell,]) => get_cell_value(ctx, clean_cell(cell))
+        ExcelExpr(:cell_ref, [cell, sheet]) => get_cell_value(ctx, clean_cell(cell))
+        ExcelExpr(:+, [unary,]) => exec(unary, ctx)
+        ExcelExpr(:+, [lhs, rhs]) => xl_add(missing_to(exec(lhs, ctx)), missing_to(exec(rhs, ctx)))
+        ExcelExpr(:-, [unary,]) => -1 * exec(unary, ctx)
+        ExcelExpr(:-, [lhs, rhs]) => xl_sub(missing_to(exec(lhs, ctx)), missing_to(exec(rhs, ctx)))
+        ExcelExpr(:*, [lhs, rhs]) => missing_to(exec(lhs, ctx)) * missing_to(exec(rhs, ctx))
+        ExcelExpr(:/, [lhs, rhs]) => missing_to(exec(lhs, ctx)) / missing_to(exec(rhs, ctx))
+        ExcelExpr(:^, [lhs, rhs]) => exec(lhs, ctx)^exec(rhs, ctx)
+        ExcelExpr(:&, [lhs, rhs]) => string(exec(lhs, ctx), exec(rhs, ctx))
+        ExcelExpr(:eq, [lhs, rhs]) => xl_eq(exec(lhs, ctx), exec(rhs, ctx))
+        ExcelExpr(:neq, [lhs, rhs]) => !xl_eq(exec(lhs, ctx), exec(rhs, ctx))
+        ExcelExpr(:leq, [lhs, rhs]) => xl_leq(exec(lhs, ctx), exec(rhs, ctx))
+        ExcelExpr(:geq, [lhs, rhs]) => xl_geq(exec(lhs, ctx), exec(rhs, ctx))
+        ExcelExpr(:lt, [lhs, rhs]) => xl_lt(exec(lhs, ctx), exec(rhs, ctx))
+        ExcelExpr(:gt, [lhs, rhs]) => xl_gt(exec(lhs, ctx), exec(rhs, ctx))
+        ExcelExpr(:range, [lhs, rhs]) => rangetomatrix(ctx, exec_to_cell(lhs), exec_to_cell(rhs))
+        ExcelExpr(:sheet_ref, [sheet_name, ref]) => exec(ref, with_current_sheet(ctx, sheet_name))
+        ExcelExpr(:named_range, [name,]) => exec(get_key_value(ctx, name), ctx)
+        ExcelExpr(:call, ["IF", args...]) => xl_logical(eval(args[1], ctx)) ? exec(args[2], ctx) : exec(args[3], ctx)
+        ExcelExpr(:call, [fn_name, args...]) => eval_function(ctx, fn_name, args)
     end
     # println("$(expr) = $(result)")
     result
@@ -444,7 +485,7 @@ end
 
 function exec_to_cell(expr::ExcelExpr)
     @match expr begin
-        ExcelExpr(:cell_ref, (cell,)) => cell
+        ExcelExpr(:cell_ref, [cell,]) => cell
     end
 end
 

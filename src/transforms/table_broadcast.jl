@@ -7,9 +7,99 @@ function get_2d_regions(coords::Vector{Tuple{Int,Int}})
         return [(c:c, r:r)]
     end
 
+
+    vertical_runs = Vector{Tuple{Int, UnitRange{Int}}}()
+
+    cols = Vector{Int}()
+
+    i = 1
+    while i <= length(coords)
+        c, start_r = coords[i]
+        i += 1
+        end_r = start_r
+        while (i <= length(coords)) && (coords[i] == (c, end_r + 1))
+            end_r += 1
+            i += 1
+        end
+
+        push!(vertical_runs, (c, start_r:end_r))
+    end
+
+
     regions = Vector{Tuple{UnitRange{Int},UnitRange{Int}}}()
 
+    i = 1
+
+    while !isempty(vertical_runs)
+    # while i <= length(vertical_runs)
+        # column, rows = vertical_runs[i]
+        # @info "Outer while loop" vertical_runs
+        column, rows = popfirst!(vertical_runs)
+
+        end_c = column
+
+        do_continue = true
+        while do_continue
+            do_continue = false
+            j = 1
+            while j <= length(vertical_runs)
+                # @info "Inner while loop" j vertical_runs
+                # @show j vertical_runs
+            # for (other_c, other_rows) in vertical_runs
+                other_c, other_rows = vertical_runs[j]
+                if other_c != end_c + 1 
+                    j += 1
+                    continue
+                end
+
+                if (first(other_rows) <= first(rows)) && (last(other_rows) >= last(rows))
+                    if first(other_rows) < first(rows)
+                        # println("Would push $((other_c, first(other_rows):(first(rows) - 1)))")
+                        push!(vertical_runs, (other_c, first(other_rows):(first(rows) - 1)))
+                    end
+                    if last(other_rows) > last(rows)
+                        # println("Would push $((other_c, (last(rows) + 1):last(other_rows)))")
+                        push!(vertical_runs, (other_c, (last(rows) + 1):last(other_rows)))
+                    end
+                    # do_continue = true
+
+                    end_c += 1
+                    deleteat!(vertical_runs, j)
+                else
+                    j += 1
+                end
+            end
+        end
+
+        push!(regions, (column:end_c, rows))
+
+        i += 1
+    end
+
+
+    sort!(regions; by=a -> first.(a))
+end
+
+function get_2d_regions_old(coords::Vector{Tuple{Int,Int}})
+    # Given a list of sorted (column, row) points, we find 2d contiguous rectangles.
+
+
+    isempty(coords) && return []
+
+    if length(coords) == 1
+        c, r = coords[1]
+        return [(c:c, r:r)]
+    end
+
+    regions = Vector{Tuple{UnitRange{Int},UnitRange{Int}}}()
+
+    # Make a copy so that we can be destructive to it to keep track of what we've handled thus far
     points = copy(coords)
+
+    # A basic heuristic is used for finding rectangles, which is to greedily take any runs in a column,
+    # and then try and expand that single column to the right. 
+    # Only expand to the right if all the same rows are represented in that column.
+
     while !isempty(points)
         start_c, start_r = popfirst!(points)
         end_r = start_r
@@ -22,6 +112,7 @@ function get_2d_regions(coords::Vector{Tuple{Int,Int}})
         next_col_points = [(end_c, r) for r in start_r:end_r]
         while all(p -> p in points, next_col_points)
             end_c += 1
+            # Remove the points that are now claimed by this region
             filter!(p -> !(p in next_col_points), points)
             next_col_points = [(end_c, r) for r in start_r:end_r]
         end
@@ -41,9 +132,13 @@ function exprs_equal_with_offset(a::ExcelExpr, b::ExcelExpr, rows::Int, cols::In
     end
 
     if a.head == :cell_ref
-        return a === offset(b, rows, cols)
+        return a == offset(b, rows, cols)
     elseif a.head == :table_ref
-        return a === offset(b, rows, cols)
+        # @show a
+        # @show offset(b, rows, cols)
+        # @show isequal(a, offset(b, rows, cols))
+        return isequal(a, offset(b, rows, cols))
+        # return a == offset(b, rows, cols)
     else
         for i in 1:length(a.args)
             if !equal_with_offset(a.args[i], b.args[i], rows, cols)

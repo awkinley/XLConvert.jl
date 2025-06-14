@@ -93,12 +93,14 @@ end
 
 function find_tables_in_sheet(sheet_name, cells)
     
-    formula_cells = filter(c -> c isa XLConvert.FormulaCell, cells)
+    # formula_cells = filter(c -> c isa XLConvert.FormulaCell, cells)
+    formula_cells = cells
     # @show length(formula_cells)
 
-    functionalized = [XLConvert.FormulaCell(cell.cell, XLConvert.functionalize(cell.expr, [])[1]) for cell in formula_cells] 
+    functionalized = [XLConvert.FormulaCell(cell.cell, XLConvert.functionalize(cell.expr)[1]) for cell in formula_cells] 
 
-    uses_same_function = XLConvert.group_to_dict(functionalized, c -> string(c.expr))
+    # uses_same_function = XLConvert.group_to_dict(functionalized, c -> string(c.expr))
+    uses_same_function = XLConvert.group_to_dict(functionalized, c -> c.expr)
 
     tables = Vector{XLConvert.ExcelTable}()
 
@@ -107,12 +109,21 @@ function find_tables_in_sheet(sheet_name, cells)
         # @show func
         formula_cells = uses_same_function[func]
         cells = [CellDependency(sheet_name, string(f.cell.ref)) for f in formula_cells]
-        row_nums = rownum.(cells)
-        col_nums = colnum.(cells)
-        coords = zip(col_nums, row_nums) |> collect
+        # row_nums = rownum.(cells)
+        # col_nums = colnum.(cells)
+        coords = XLConvert.get_coords.(cells)
+        # coords = zip(col_nums, row_nums) |> collect
         coord_to_statement = Dict(c => s for (c, s) in zip(coords, cells))
+        sort!(coords)
 
-        regions = XLConvert.get_2d_regions(sort(coords))
+
+        regions = XLConvert.get_2d_regions(coords)
+        # regions_old = XLConvert.get_2d_regions_old(coords)
+        # if regions != regions_old
+        #     @show coords
+        #     @show regions
+        #     @show regions_old
+        # end
         # println("Group size = $(length(group))")
         for region in regions
             cols, rows = region
@@ -230,11 +241,12 @@ function find_tables_in_sheet(sheet_name, cells)
 end
 function find_tables(used_subset::XLConvert.WorkbookSubset)
     wb = used_subset.wb
-    cells_by_sheet = XLConvert.group_to_dict(collect(keys(wb.cell_dict)), c -> c.sheet_name)
+    cells_by_sheet = XLConvert.group_to_dict(filter(c -> wb.cell_dict[c] isa XLConvert.FormulaCell, keys(wb.cell_dict)), c -> c.sheet_name)
 
     all_tables = Vector{XLConvert.ExcelTable}()
 
     for sheet_name in keys(cells_by_sheet)
+        # sheet_tables = find_tables_in_sheet(sheet_name, [wb.cell_dict[c] for c in cells_by_sheet[sheet_name] if wb.cell_dict[c] isa XLConvert.FormulaCell])
         sheet_tables = find_tables_in_sheet(sheet_name, [wb.cell_dict[c] for c in cells_by_sheet[sheet_name]])
         append!(all_tables, sheet_tables)
     end
@@ -269,6 +281,48 @@ function number_of_paths(graph, source, destination)
     dp[source]
 end
 
+function get_statements(wb::XLConvert.ExcelWorkbook2)
+    xf = wb.xf
+
+    # return
+
+    target_output = CellDependency("Results", "C26")
+    all_target_outputs = [target_output]
+
+    @time used_subset = get_workbook_subset(wb, all_target_outputs)
+
+    println("-"^40)
+    println("Finding Tables")
+    println("-"^40)
+    @time tables = find_tables(used_subset)
+    push!(tables, DefTable(xf, "Depreciation", "MACRS", "C15", "H35", "C14:H14", ""))
+
+    # return
+
+    # cycles = Graphs.simplecycles(used_subset.graph)
+    # all_ref_cells = get_all_referenced_cells(wb)
+    # println("-"^40)
+    # println("Cycles")
+    # println("-"^40)
+    # for cycle in cycles
+    #     @show all_ref_cells[cycle]
+    # end
+
+    # # tables = begin
+    # #     values_tab = DefTable(xf, "Sheet1", "value_series", "C6", "C17", "C5:C5", "")
+
+    # #     []
+    # # end
+
+    # statements = make_statements(used_subset)
+    # if_multiple_transform!(statements)
+    # if_toggle_transform!(statements)
+    # round_if_transform!(statements)
+    # table_ref_transform!(statements, tables)
+
+    # statements
+end
+
 function run(wb::XLConvert.ExcelWorkbook2)
     # file = "current-central-biomass-gasification-version-oct20.xlsm"
     # wb = parse_workbook(file)
@@ -279,12 +333,12 @@ function run(wb::XLConvert.ExcelWorkbook2)
     target_output = CellDependency("Results", "C26")
     all_target_outputs = [target_output]
 
-    used_subset = get_workbook_subset(wb, all_target_outputs)
+    @time used_subset = get_workbook_subset(wb, all_target_outputs)
 
     println("-"^40)
     println("Finding Tables")
     println("-"^40)
-    tables = find_tables(used_subset)
+    @time tables = find_tables(used_subset)
     push!(tables, DefTable(xf, "Depreciation", "MACRS", "C15", "H35", "C14:H14", ""))
 
     # return
@@ -294,7 +348,7 @@ function run(wb::XLConvert.ExcelWorkbook2)
     println("-"^40)
     println("Cycles")
     println("-"^40)
-    for cycle in cycles
+    @time "showing cycles" for cycle in cycles
         @show all_ref_cells[cycle]
     end
 
@@ -305,32 +359,32 @@ function run(wb::XLConvert.ExcelWorkbook2)
     # end
 
     statements = begin
-        statements = make_statements(used_subset)
-        if_multiple_transform!(statements)
-        if_toggle_transform!(statements)
-        round_if_transform!(statements)
-        table_ref_transform!(statements, tables)
+        @time "Make statements" statements = make_statements(used_subset)
+        @time "if_multiple_transform" if_multiple_transform!(statements)
+        @time "if_toggle_transform" if_toggle_transform!(statements)
+        @time "round_if_transform" round_if_transform!(statements)
+        @time "table_ref_transform" table_ref_transform!(statements, tables)
 
-        statements
+        # statements
 
         # statements = table_broadcast_transform_2d!(statements, used_subset)
 
         println("-"^40)
         println("Table Broadcast Transform")
         println("-"^40)
-        statements = table_broadcast_transform_2d!(statements)
+        @time statements = table_broadcast_transform_2d!(statements)
         println("-"^40)
         println("Group statements")
         println("-"^40)
-        grouped_statements = group_statements(statements)
+        @time grouped_statements = group_statements(statements)
         println("-"^40)
         println("Group statements (again)")
         println("-"^40)
-        grouped_statements = group_statements(grouped_statements)
-        println("-"^40)
-        println("Group statements (again x2)")
-        println("-"^40)
-        grouped_statements = group_statements(grouped_statements)
+        @time grouped_statements = group_statements(grouped_statements)
+        # println("-"^40)
+        # println("Group statements (again x2)")
+        # println("-"^40)
+        # grouped_statements = group_statements(grouped_statements)
         # println("-"^40)
         # println("Add functions")
         # println("-"^40)
@@ -435,9 +489,11 @@ function run(wb::XLConvert.ExcelWorkbook2)
     # return
 
 
-    all_ref_cells = get_all_referenced_cells(wb)
+    @time "get_all_referenced_cells" all_ref_cells = get_all_referenced_cells(wb)
     # var_names_map = make_var_names_map(all_ref_cells, wb.xf)
-    var_names_map = make_var_names_map(all_ref_cells, wb)
+
+    println("Making var names map")
+    @time var_names_map = make_var_names_map(all_ref_cells, wb)
     println("Setting names from tables!")
     @time for t in tables
         set_names_from_table!(var_names_map, all_ref_cells, t)
@@ -449,11 +505,13 @@ function run(wb::XLConvert.ExcelWorkbook2)
     # key_values_dict = Dict((p[1] => FormulaParser.toexpr(repr(p[2]))) for p in XLSX.get_workbook(wb.xf).workbook_names)
     key_values_dict = wb.key_values
 
-    cell_types = infer_types(used_subset)
+    println("Infer types")
+    @time cell_types = infer_types(used_subset)
 
     new_names_map = var_names_map
     exporter = JuliaExporter(wb, new_names_map, tables, key_values_dict, handlers, cell_types)
 
 
-    write_file(exporter, "current_biomass_gasification.jl", wb, statements)
+    println("Write file")
+    @time write_file(exporter, "current_biomass_gasification.jl", wb, statements)
 end

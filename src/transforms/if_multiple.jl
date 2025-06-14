@@ -1,6 +1,6 @@
 convert_if_multiple(expr) = expr
 function convert_if_multiple(expr::ExcelExpr)
-    if @ismatch expr ExcelExpr(:call, ("IF", ExcelExpr(:eq, (ExcelExpr(:call, ("MOD", dividend, divisor)), 0.0)), result_value, 0.0))
+    if @ismatch expr ExcelExpr(:call, ["IF", ExcelExpr(:eq, [ExcelExpr(:call, ["MOD", dividend, divisor]), 0.0]), result_value, 0.0])
         ExcelExpr(:call, "IF_MULTIPLE", dividend, divisor, result_value)
     else
         expr
