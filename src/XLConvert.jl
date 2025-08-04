@@ -51,6 +51,7 @@ export CellDependency,
 include("excel_expr.jl")
 include("formula_parser.jl")
 include("excel_formula.jl")
+include("flat_expr.jl")
 include("type_infer.jl")
 include("cell_dependency.jl")
 include("excel_table.jl")

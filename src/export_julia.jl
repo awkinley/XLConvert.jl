@@ -34,12 +34,12 @@ end
 abstract type AbstractHandler end
 
 struct JuliaExporter3
-    wb
-    var_names::Dict{CellDependency,String}
+    wb::Any
+    var_names::Dict{CellDependency, String}
     tables::Vector{ExcelTable}
-    named_values
-    handlers
-    cell_types
+    named_values::Any
+    handlers::Any
+    cell_types::Any
 end
 
 JuliaExporter = JuliaExporter3
@@ -106,8 +106,8 @@ function handle(::BasicOpHandler, expr::ExcelExpr, exporter::JuliaExporter, ctx)
                 binop_str
             end
         end
-        ExcelExpr(:+, [unary,]) => c(unary)
-        ExcelExpr(:-, [unary,]) => "(-1 * " * c(unary) * ")"
+        ExcelExpr(:+, [unary]) => c(unary)
+        ExcelExpr(:-, [unary]) => "(-1 * " * c(unary) * ")"
         ExcelExpr(:^, [lhs, rhs]) => "(($(c(lhs))) ^ ($(c(rhs))))"
         ExcelExpr(:%, [unary]) => "(($(c(unary))) / 100.0)"
         ExcelExpr(:&, [lhs, rhs]) => "($(c(lhs))* $(c(rhs)))"
@@ -313,10 +313,10 @@ function handle(::EverythingElseHandler, expr::ExcelExpr, exporter::JuliaExporte
     # @show expr
 
     @match expr begin
-        ExcelExpr(:func_param, [param_num,]) => "param_$param_num"
+        ExcelExpr(:func_param, [param_num]) => "param_$param_num"
         ExcelExpr(:func_param, [param_num, _type]) => "param_$param_num"
         ExcelExpr(:cell_ref, [cell, sheet]) => exporter.var_names[CellDependency(sheet, cell)]
-        ExcelExpr(:named_range, [name,]) => convert(exporter, get(exporter.named_values, name, "undef_var_$name"), ctx)
+        ExcelExpr(:named_range, [name]) => convert(exporter, get(exporter.named_values, name, "undef_var_$name"), ctx)
         ExcelExpr(:call, ["IF", cond, t, f]) => begin
             cond_is_bool = get_type(cond, sheetname(ctx), exporter.cell_types, exporter.named_values) == Bool
             if cond_is_bool
@@ -326,7 +326,7 @@ function handle(::EverythingElseHandler, expr::ExcelExpr, exporter::JuliaExporte
             end
         end
         ExcelExpr(:call, [fn_name, args...]) => xl_call_to_julia(fn_name, map(func, args))
-        ExcelExpr(:broadcast_protect, [expr,]) => "($(func(expr)),)"
+        ExcelExpr(:broadcast_protect, [expr]) => "($(func(expr)),)"
         ExcelExpr(:cols, [sheet, columns]) => "columns($(repr(sheet)), $(repr(columns)))"
         _ => missing
     end
@@ -341,7 +341,7 @@ sheetname(ctx::JlExporterCtx) = ctx.current_sheet
 function withsheet(ctx::JlExporterCtx, sheet::AbstractString)
     JlExporterCtx(
         sheet,
-        ctx.last_binding_affinity
+        ctx.last_binding_affinity,
     )
 end
 
@@ -349,7 +349,7 @@ bindingaffinity(ctx::JlExporterCtx) = ctx.last_binding_affinity
 function withbindingaffinity(ctx::JlExporterCtx, affinity::Int)
     JlExporterCtx(
         sheetname(ctx),
-        affinity
+        affinity,
     )
 end
 # function setsheet!(ctx::JlExporterCtx, sheet::AbstractString) 
@@ -371,6 +371,9 @@ function convert(exporter::JuliaExporter, expr, ctx::JlExporterCtx)
     end
 end
 
+function convert(exporter::JuliaExporter, expr::FlatExpr, ctx::JlExporterCtx)
+    convert(exporter, convert_to_expr(expr), ctx)
+end
 function convert(exporter::JuliaExporter, expr::ExcelExpr, ctx::JlExporterCtx)
     # @info "convert" ctx expr
     if expr.head == :sheet_ref
@@ -398,7 +401,7 @@ end
 
 convert(exporter::JuliaExporter, expr, current_sheet::AbstractString) = convert(exporter, expr, JlExporterCtx(current_sheet, -1))
 
-function make_struct(exporter::JuliaExporter, struct_name::AbstractString, var_names::Vector{<:AbstractString}; var_types::Union{Nothing,Vector}=nothing, ismutable=false, default_values=nothing, var_comments::Union{Nothing,Vector}=nothing)
+function make_struct(exporter::JuliaExporter, struct_name::AbstractString, var_names::Vector{<:AbstractString}; var_types::Union{Nothing, Vector} = nothing, ismutable = false, default_values = nothing, var_comments::Union{Nothing, Vector} = nothing)
     lines = Vector{String}()
     sizehint!(lines, 2 + length(var_names))
     def_terms = Vector{String}()

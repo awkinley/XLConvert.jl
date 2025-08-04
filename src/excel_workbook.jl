@@ -4,19 +4,19 @@ end
 
 struct ValueCell1
     cell::XLSX.Cell
-    value
+    value::Any
 end
 
 ValueCell = ValueCell1
 
 struct FormulaCell
     cell::XLSX.Cell
-    expr::Union{ExcelExpr,Float64,Int64,String,Missing}
+    expr::Union{FlatExpr, ExcelExpr, Float64, Int64, String, Missing}
 end
 
 # FormulaCell = FormulaCell2
 
-CellTypes = Union{ValueCell,FormulaCell}
+CellTypes = Union{ValueCell, FormulaCell}
 
 function get_expr(cell::FormulaCell)
     cell.expr
@@ -34,9 +34,9 @@ end
 
 struct ExcelWorkbook2
     xf::XLSX.XLSXFile
-    cell_dict::Dict{CellDependency,CellTypes}
-    cell_dependencies::Dict{CellDependency,Vector{CellDependency}}
-    key_values::Dict{String,Any}
+    cell_dict::Dict{CellDependency, CellTypes}
+    cell_dependencies::Dict{CellDependency, Vector{CellDependency}}
+    key_values::Dict{String, Any}
 end
 
 ExcelWorkbook = ExcelWorkbook2
@@ -52,27 +52,51 @@ end
 
 function lower_sheet_names(expr::ExcelExpr, current_sheet::AbstractString)
     @match expr begin
-        ExcelExpr(:cell_ref, [cell,]) => ExcelExpr(:cell_ref, cell, current_sheet)
-        ExcelExpr(:cols, [columns,]) => begin
+        ExcelExpr(:cell_ref, [cell]) => ExcelExpr(:cell_ref, cell, current_sheet)
+        ExcelExpr(:cols, [columns]) => begin
             println("Got column expr")
             @show expr
             ExcelExpr(:cols, current_sheet, columns)
         end
         ExcelExpr(:sheet_ref, [sheet_name, ref]) => lower_sheet_names(ref, sheet_name)
         ExcelExpr(op, args) => begin
-            ExcelExpr(op, lower_sheet_names.(args, current_sheet)...)
+            ExcelExpr(op, lower_sheet_names.(args, current_sheet))
+        end
+    end
+end
+
+function lower_sheet_names!(expr, current_sheet::AbstractString)
+end
+
+function lower_sheet_names!(expr::ExcelExpr, current_sheet::AbstractString)
+    @match expr begin
+        ExcelExpr(:cell_ref, [cell]) => begin
+            push!(expr.args, current_sheet)
+        end
+        ExcelExpr(:cols, [columns]) => begin
+            println("Got column expr")
+            @show expr
+            push!(expr.args, current_sheet)
+            # ExcelExpr(:cols, current_sheet, columns)
+        end
+        ExcelExpr(:sheet_ref, [sheet_name, ref]) => lower_sheet_names!(ref, sheet_name)
+        ExcelExpr(op, args) => begin
+            for arg in args
+                lower_sheet_names!(arg, current_sheet)
+            end
+            # ExcelExpr(op, lower_sheet_names.(args, current_sheet))
         end
     end
 end
 
 function get_cell_dict(xl)
-    cell_dict = Dict{CellDependency,CellTypes}()
+    cell_dict = Dict{CellDependency, CellTypes}()
 
     for sheet_name in XLSX.sheetnames(xl)
         sheet = xl[sheet_name]
         all_cells = filter(!isempty, get_all_cells(sheet))
 
-        ref_cells_dict = Dict{Int64,CellDependency}()
+        ref_cells_dict = Dict{Int64, CellDependency}()
 
         # Do referenced cell first, so that we can look them up later
         for ref_formula_cell in filter(is_ref_formula, all_cells)
@@ -81,8 +105,11 @@ function get_cell_dict(xl)
             # try
             # expression = toexpr(parse_formula(ref_formula_cell.formula.formula))
             # expression = FormulaParser.toexpr(ref_formula_cell.formula.formula)
-            expression = toexpr(ref_formula_cell.formula.formula)
-            cell_dict[cell_dep] = FormulaCell(ref_formula_cell, lower_sheet_names(expression, sheet_name))
+            expr = toexpr(ref_formula_cell.formula.formula)
+            # expr = lower_sheet_names(expression, sheet_name) |> convert_to_flat_expr
+            lower_sheet_names!(expr, sheet_name)
+            cell_dict[cell_dep] = FormulaCell(ref_formula_cell, expr)
+            # cell_dict[cell_dep] = FormulaCell(ref_formula_cell, lower_sheet_names(expression, sheet_name))
             # cell_dict[cell_dep] = FormulaCell(ref_formula_cell, expression)
 
             ref_cells_dict[ref_formula_cell.formula.id] = cell_dep
@@ -113,9 +140,12 @@ function get_cell_dict(xl)
                 else
                     try
                         # expression = FormulaParser.toexpr(cell.formula.formula)
-                        expression = toexpr(cell.formula.formula)
+                        expr = toexpr(cell.formula.formula)
+                        # expr = lower_sheet_names(expression, sheet_name) |> convert_to_flat_expr
+                        lower_sheet_names!(expr, sheet_name)
                         # expression = toexpr(parse_formula(cell.formula.formula))
-                        cell_dict[cell_dep] = FormulaCell(cell, lower_sheet_names(expression, sheet_name))
+                        cell_dict[cell_dep] = FormulaCell(cell, expr)
+                        # cell_dict[cell_dep] = FormulaCell(cell, lower_sheet_names(expression, sheet_name))
                     catch e
                         # throw(e)
                         @show e
@@ -132,8 +162,8 @@ function get_cell_dict(xl)
     cell_dict
 end
 
-function get_all_dependencies(cell_dict::Dict{CellDependency,CellTypes}, key_values)
-    output = Dict{CellDependency,Vector{CellDependency}}()
+function get_all_dependencies(cell_dict::Dict{CellDependency, CellTypes}, key_values)
+    output = Dict{CellDependency, Vector{CellDependency}}()
 
     for (cell, content) in cell_dict
         if content isa FormulaCell

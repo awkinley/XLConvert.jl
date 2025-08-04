@@ -2,6 +2,7 @@
 # using Test
 # using Match
 # using ..XLExpr
+using Automa
 
 @enum TokenKind begin
     EXCEL_FUNCTION
@@ -10,6 +11,7 @@
     NAMED_RANGE_PREFIXED
     CELL
     ERROR_REF
+    ERROR
     BOOLEAN
     HORIZONTAL_RANGE
     VERTICAL_RANGE
@@ -18,20 +20,24 @@
     SPACE
     NAMED_RANGE
     OTHER
+    TOK_ERR
 end
 
 
 struct Token
     kind::TokenKind
-    val::String
+    val::SubString{String}
 end
 
 val(token::Token) = token.val
 kind(token::Token) = token.kind
 
 
-function Token(kind::TokenKind, val::T) where {T<:AbstractString}
-    Token(kind, string(val))
+# function Token(kind::TokenKind, val::SubString{String})
+#     Token(kind, val)
+# end
+function Token(kind::TokenKind, val::String)
+    Token(kind, @view val[begin:end])
 end
 function Token(kind::TokenKind, val::T) where {T<:AbstractChar}
     Token(kind, string(val))
@@ -50,34 +56,17 @@ function Lexer(str::AbstractString)
     Lexer(base_string, idx)
 end
 
+const single_char_toks::Vector{Char} = ['+', '-', '*', '/', '^', '(', ')', ',', '%', '&', ':', '=']
 function match_other_token(str::T) where {T<:AbstractString}
+
+    for c in single_char_toks
+        if str[1] == c
+            return Token(OTHER, @view str[1:1])
+        end
+    end
+
     first_char = str[1]
-    # @info "match other token" str first_char
-    if first_char == '+'
-        Token(OTHER, first_char)
-    elseif first_char == '-'
-        Token(OTHER, first_char)
-    elseif first_char == '*'
-        Token(OTHER, first_char)
-    elseif first_char == '/'
-        Token(OTHER, first_char)
-    elseif first_char == '^'
-        Token(OTHER, first_char)
-    elseif first_char == '('
-        Token(OTHER, first_char)
-    elseif first_char == ')'
-        Token(OTHER, first_char)
-    elseif first_char == ','
-        Token(OTHER, first_char)
-    elseif first_char == '%'
-        Token(OTHER, first_char)
-    elseif first_char == '&'
-        Token(OTHER, first_char)
-    elseif first_char == ':'
-        Token(OTHER, first_char)
-    elseif first_char == '='
-        Token(OTHER, first_char)
-    elseif first_char == '<'
+    if first_char == '<'
         second_char = if length(str) > 1
             str[2]
         else
@@ -85,11 +74,11 @@ function match_other_token(str::T) where {T<:AbstractString}
         end
 
         if second_char == '='
-            Token(OTHER, first_char * second_char)
+            Token(OTHER, @view str[1:2])
         elseif second_char == '>'
-            Token(OTHER, first_char * second_char)
+            Token(OTHER, @view str[1:2])
         else
-            Token(OTHER, first_char)
+            Token(OTHER, @view str[1:1])
         end
     elseif first_char == '>'
         second_char = if length(str) > 1
@@ -98,9 +87,9 @@ function match_other_token(str::T) where {T<:AbstractString}
             nothing
         end
         if second_char == '='
-            Token(OTHER, first_char * second_char)
+            Token(OTHER, @view str[1:2])
         else
-            Token(OTHER, first_char)
+            Token(OTHER, @view str[1:1])
         end
     else
         nothing
@@ -108,6 +97,45 @@ function match_other_token(str::T) where {T<:AbstractString}
 
 end
 
+function define_tokenizer()
+
+    tokens = [
+        EXCEL_FUNCTION => re"(_xlfn\.)?[A-Z][A-Z0-9\.]*\(",
+        UNQUOTED_SHEET => re"[^'*\[\]\\:/\?\(\);{}#\"=<>&\+\-\*^%, ]+!",
+        QUOTED_SHEET => re"'[^'*\[\]\\:/\?]+'!",
+        CELL => re"[$]?[A-Z]+[$]?[0-9]+",
+        ERROR_REF => re"#REF!",
+        ERROR => re"#NULL!" | re"#DIV/0!" | re"#VALUE!" | re"#NAME?" | re"#NUM!" | re"#N/A",
+        BOOLEAN => re"TRUE|FALSE",
+        HORIZONTAL_RANGE => re"[$]?[0-9]+:[$]?[0-9]+",
+        VERTICAL_RANGE => re"[$]?[A-Z]+:[$]?[A-Z]+",
+        NUMBER => re"\.[0-9]+(e[0-9]+)?" | re"[0-9]+(\.[0-9]+)?(e[0-9]+)?",
+        STRING_LITERAL => re"\"([^\"]|\"\")*\"",
+        NAMED_RANGE_PREFIXED => re"(TRUE|FALSE|([A-Z]+[0-9]+))[A-Za-z0-9\\_]+",
+        # (space, SPACE),
+        NAMED_RANGE => re"[A-Za-z_\\][A-Za-z0-9\\_]*",
+        SPACE => re" ",
+    ]
+
+    other_res = [
+        re">=",
+        re"<=",
+        re"<>",
+        re">",
+        re"<",
+    ]
+    for c in single_char_toks
+        push!(other_res, RE(c))
+    end
+    push!(tokens, OTHER => reduce(|, other_res))
+
+    # Automa uses higher index to be higher priority, but the token list uses lower index for higher priority
+    reverse!(tokens)
+
+    Automa.make_tokenizer((TOK_ERR, tokens)) |> eval
+end
+
+define_tokenizer()
 const rg_excel_function = r"\G(_xlfn\.)?[A-Z][A-Z0-9\.]*\("
 const rg_unquoted_sheet = r"\G'[^\'\*\[\]\\:/\?]+'!"
 const rg_quoted_sheet = r"\G[^\'\*\[\]\\:/\?\\(\);\{\}#\"=<>&\+\-\*^%, ]+!"
@@ -122,24 +150,23 @@ const rg_string_literal = r"\G\"([^\"]|(?:\"\"))*\""
 const rg_space = r"\G\s+"
 const rg_named_range = r"\G[A-Za-z_\\][A-Za-z0-9\\_]*"
 
-function tokenize(lexer::Lexer; dbg=false)
+function tokenize_test(lexer)
 
-
-    token_kinds = [
-        (rg_excel_function, EXCEL_FUNCTION),
-        (rg_unquoted_sheet, UNQUOTED_SHEET),
-        (rg_quoted_sheet, QUOTED_SHEET),
-        (rg_named_range_prefixed, NAMED_RANGE_PREFIXED),
-        (rg_cell, CELL),
-        (rg_error_ref, ERROR_REF),
-        (rg_boolean, BOOLEAN),
-        (rg_horizontal_range, HORIZONTAL_RANGE),
-        (rg_vertical_range, VERTICAL_RANGE),
-        (rg_number, NUMBER),
-        (rg_string_literal, STRING_LITERAL),
-        # (space, SPACE),
-        (rg_named_range, NAMED_RANGE),
-    ]
+    # token_kinds = [
+    #     (rg_excel_function, EXCEL_FUNCTION),
+    #     (rg_unquoted_sheet, UNQUOTED_SHEET),
+    #     (rg_quoted_sheet, QUOTED_SHEET),
+    #     (rg_named_range_prefixed, NAMED_RANGE_PREFIXED),
+    #     (rg_cell, CELL),
+    #     (rg_error_ref, ERROR_REF),
+    #     (rg_boolean, BOOLEAN),
+    #     (rg_horizontal_range, HORIZONTAL_RANGE),
+    #     (rg_vertical_range, VERTICAL_RANGE),
+    #     (rg_number, NUMBER),
+    #     (rg_string_literal, STRING_LITERAL),
+    #     # (space, SPACE),
+    #     (rg_named_range, NAMED_RANGE),
+    # ]
 
     tokens = Vector{Token}()
 
@@ -152,45 +179,167 @@ function tokenize(lexer::Lexer; dbg=false)
 
     current_str = lexer.base_string[idx:end]
 
-
-    while !isempty(current_str)
-        dbg && @show current_str
-        did_match = false
-        other = match_other_token(current_str)
-        if !isnothing(other)
-            dbg && @show other
-            idx += length(val(other))
-            push!(tokens, other)
-            did_match = true
-        else
-            for (rgx, kind) in token_kinds
-                m = match(rgx, current_str)
-                if !isnothing(m)
-                    dbg && @show m
-                    dbg && @show length(m.match)
-                    t = Token(kind, m.match)
-                    dbg && @show t
-                    push!(tokens, t)
-                    idx += length(m.match)
-                    did_match = true
-                    break
-                end
+    iter = Automa.tokenize(TokenKind, current_str)
+    for (start_idx, tok_length, kind) in iter
+        if kind == TOK_ERR
+            println("Tokenizer encountered an error")
+            println("String = $current_str")
+            println("Error occurred at index $(start_idx) with length $(tok_length)")
+            if start_idx > 20
+                end_idx = min(length(current_str), start_idx + tok_length + 20)
+                println(current_str[start_idx - 20:end_idx])
+                println(" "^20 * "^"*tok_length)
+            else
+                end_idx = min(length(current_str), start_idx + tok_length + 20)
+                println(current_str[begin:end_idx])
+                println(" "^start_idx * "^"*tok_length)
             end
+            throw("Error during tokenization")
         end
-        dbg && @show idx
-
-        if !did_match
-            @show lexer.base_string
-            @show current_str
-            throw("Failed to match $(repr(current_str)) against any token")
+        if kind != SPACE
+            push!(tokens, Token(kind, SubString(current_str, start_idx, start_idx + tok_length - 1)))
         end
-
-        while idx <= max_idx && Base.isspace(lexer.base_string[idx])
-            idx += 1
-        end
-        current_str = lexer.base_string[idx:end]
-
     end
+
+
+    # while !isempty(current_str)
+    #     did_match = false
+    #     other = match_other_token(current_str)
+    #     if !isnothing(other)
+    #         # idx += length(val(other))
+    #         push!(tokens, other)
+    #         did_match = true
+    #     else
+    #         iter = @show Automa.tokenize(TokenKind, current_str)
+    #         m = collect(iter)
+    #         @show m
+    #         @show current_str
+    #         did_match = true
+    #         return tokens
+    #         # for (rgx, kind) in token_kinds
+    #         #     m = match(rgx, current_str)
+    #         #     if !isnothing(m)
+    #         #         t = Token(kind, m.match)
+    #         #         push!(tokens, t)
+    #         #         idx += length(m.match)
+    #         #         did_match = true
+    #         #         break
+    #         #     end
+    #         # end
+    #     end
+
+    #     # if !did_match
+    #     #     @show lexer.base_string
+    #     #     @show current_str
+    #     #     throw("Failed to match $(repr(current_str)) against any token")
+    #     # end
+
+    #     while idx <= max_idx && Base.isspace(lexer.base_string[idx])
+    #         idx += 1
+    #     end
+    #     current_str = lexer.base_string[idx:end]
+
+    # end
+
+
+    tokens
+end
+
+function tokenize(lexer::Lexer; dbg=false)
+
+
+    # token_kinds = [
+    #     (rg_excel_function, EXCEL_FUNCTION),
+    #     (rg_unquoted_sheet, UNQUOTED_SHEET),
+    #     (rg_quoted_sheet, QUOTED_SHEET),
+    #     (rg_named_range_prefixed, NAMED_RANGE_PREFIXED),
+    #     (rg_cell, CELL),
+    #     (rg_error_ref, ERROR_REF),
+    #     (rg_boolean, BOOLEAN),
+    #     (rg_horizontal_range, HORIZONTAL_RANGE),
+    #     (rg_vertical_range, VERTICAL_RANGE),
+    #     (rg_number, NUMBER),
+    #     (rg_string_literal, STRING_LITERAL),
+    #     # (space, SPACE),
+    #     (rg_named_range, NAMED_RANGE),
+    # ]
+
+
+    idx = lexer.idx
+    max_idx = length(lexer.base_string)
+    # Remove any leading whitespace, which sometimes shows up for some reason
+    while idx <= max_idx && Base.isspace(lexer.base_string[idx])
+        idx += 1
+    end
+
+    current_str = @view lexer.base_string[idx:end]
+
+    tokens = Vector{Token}()
+    if length(current_str) > 8
+        sizehint!(tokens, length(current_str) / 8)
+    end
+    iter = Automa.tokenize(TokenKind, current_str)
+    for (start_idx, tok_length, kind) in iter
+        if kind == TOK_ERR
+            println("Tokenizer encountered an error")
+            println("String = $current_str")
+            println("Error occurred at index $(start_idx) with length $(tok_length)")
+            if start_idx > 20
+                end_idx = min(length(current_str), start_idx + tok_length + 20)
+                println(current_str[start_idx - 20:end_idx])
+                println(" "^20 * "^"*tok_length)
+            else
+                end_idx = min(length(current_str), start_idx + tok_length + 20)
+                println(current_str[begin:end_idx])
+                println(" "^start_idx * "^"^tok_length)
+            end
+            throw("Error during tokenization")
+        end
+
+        if kind != SPACE
+            push!(tokens, Token(kind, SubString(current_str, start_idx, start_idx + tok_length - 1)))
+        end
+    end
+
+
+    # while !isempty(current_str)
+    #     dbg && @show current_str
+    #     did_match = false
+    #     other = match_other_token(current_str)
+    #     if !isnothing(other)
+    #         dbg && @show other
+    #         idx += length(val(other))
+    #         push!(tokens, other)
+    #         did_match = true
+    #     else
+    #         for (rgx, kind) in token_kinds
+    #             m = match(rgx, current_str)
+    #             if !isnothing(m)
+    #                 dbg && @show m
+    #                 dbg && @show length(m.match)
+    #                 t = Token(kind, m.match)
+    #                 dbg && @show t
+    #                 push!(tokens, t)
+    #                 idx += length(m.match)
+    #                 did_match = true
+    #                 break
+    #             end
+    #         end
+    #     end
+    #     dbg && @show idx
+
+    #     if !did_match
+    #         # @show lexer.base_string
+    #         # @show current_str
+    #         throw("Failed to match $(repr(current_str)) against any token")
+    #     end
+
+    #     while idx <= max_idx && Base.isspace(lexer.base_string[idx])
+    #         idx += 1
+    #     end
+    #     current_str = @view lexer.base_string[idx:end]
+
+    # end
 
 
     tokens
@@ -328,12 +477,21 @@ function xl_string(parser::Parser)
     val(t)[2:end-1]
 end
 
+function xl_error(parser::Parser)
+    t = accept!(parser, ERROR)
+    isnothing(t) && return t
+
+    val(t)
+end
+
 function constant(parser::Parser)
     e = xl_float(parser)
     !isnothing(e) && return e
     e = xl_bool(parser)
     !isnothing(e) && return e
     e = xl_string(parser)
+    !isnothing(e) && return e
+    e = xl_error(parser)
     !isnothing(e) && return e
 
     nothing
@@ -518,7 +676,7 @@ end
 function binop_formula_inner(parser::Parser)
     valid_symbols = ["+", "-", "*", "/", "%", "^", "&", "=", "<", "<=", ">", ">=", "<>", ":"]
 
-    parts = []
+    parts = Any[]
     t = accept_other_any!(parser, valid_symbols)
     if !isnothing(t)
         push!(parts, val(t))
@@ -548,6 +706,8 @@ function binop_formula_inner(parser::Parser)
         isnothing(e) && return parts
         push!(parts, e)
     end
+
+    parts
 end
 
 function binop_formula(parser::Parser)

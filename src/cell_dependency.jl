@@ -17,20 +17,21 @@ end
 
 cell_parse_rgx = r"[$]?([A-Z]+)[$]?([0-9]+)"
 function offset(cell::CellDependency, rows::Int, cols::Int)
-    cell_match = match(cell_parse_rgx, cell.cell)
-    @assert cell_match.match == cell.cell "Cell didn't parse properly"
-    col_str = cell_match[1]
-    row_str = cell_match[2]
+    CellDependency(cell.sheet_name, offset_cell_str(cell.cell, rows, cols))
+    # cell_match = match(cell_parse_rgx, cell.cell)
+    # @assert cell_match.match == cell.cell "Cell didn't parse properly"
+    # col_str = cell_match[1]
+    # row_str = cell_match[2]
 
-    new_col_num = XLSX.decode_column_number(col_str[1:end]) + cols
-    new_row_num = parse(Int, row_str) + rows
-    if new_col_num < 1 || new_col_num < 1
-        return missing
-    end
-    new_col = XLSX.encode_column_number(new_col_num)
-    new_row = string(new_row_num)
-
-    CellDependency(cell.sheet_name, string(new_col, new_row))
+    # new_col_num = XLSX.decode_column_number(col_str[1:end]) + cols
+    # new_row_num = parse(Int, row_str) + rows
+    # if new_col_num < 1 || new_col_num < 1
+    #     return missing
+    # end
+    # new_col = XLSX.encode_column_number(new_col_num)
+    # new_row = string(new_row_num)
+    # offset_cell_str(cell.cell, rows, cols)
+    # CellDependency(cell.sheet_name, string(new_col, new_row))
 end
 
 get_coords(cell::CellDependency) = parse_cell(cell.cell)

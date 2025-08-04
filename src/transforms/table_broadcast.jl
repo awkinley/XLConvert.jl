@@ -1,5 +1,5 @@
 
-function get_2d_regions(coords::Vector{Tuple{Int,Int}})
+function get_2d_regions(coords::Vector{Tuple{Int, Int}})
     isempty(coords) && return []
 
     if length(coords) == 1
@@ -26,12 +26,12 @@ function get_2d_regions(coords::Vector{Tuple{Int,Int}})
     end
 
 
-    regions = Vector{Tuple{UnitRange{Int},UnitRange{Int}}}()
+    regions = Vector{Tuple{UnitRange{Int}, UnitRange{Int}}}()
 
     i = 1
 
     while !isempty(vertical_runs)
-    # while i <= length(vertical_runs)
+        # while i <= length(vertical_runs)
         # column, rows = vertical_runs[i]
         # @info "Outer while loop" vertical_runs
         column, rows = popfirst!(vertical_runs)
@@ -45,9 +45,9 @@ function get_2d_regions(coords::Vector{Tuple{Int,Int}})
             while j <= length(vertical_runs)
                 # @info "Inner while loop" j vertical_runs
                 # @show j vertical_runs
-            # for (other_c, other_rows) in vertical_runs
+                # for (other_c, other_rows) in vertical_runs
                 other_c, other_rows = vertical_runs[j]
-                if other_c != end_c + 1 
+                if other_c != end_c + 1
                     j += 1
                     continue
                 end
@@ -55,11 +55,11 @@ function get_2d_regions(coords::Vector{Tuple{Int,Int}})
                 if (first(other_rows) <= first(rows)) && (last(other_rows) >= last(rows))
                     if first(other_rows) < first(rows)
                         # println("Would push $((other_c, first(other_rows):(first(rows) - 1)))")
-                        push!(vertical_runs, (other_c, first(other_rows):(first(rows) - 1)))
+                        push!(vertical_runs, (other_c, first(other_rows):(first(rows)-1)))
                     end
                     if last(other_rows) > last(rows)
                         # println("Would push $((other_c, (last(rows) + 1):last(other_rows)))")
-                        push!(vertical_runs, (other_c, (last(rows) + 1):last(other_rows)))
+                        push!(vertical_runs, (other_c, (last(rows)+1):last(other_rows)))
                     end
                     # do_continue = true
 
@@ -77,10 +77,10 @@ function get_2d_regions(coords::Vector{Tuple{Int,Int}})
     end
 
 
-    sort!(regions; by=a -> first.(a))
+    sort!(regions; by = a -> first.(a))
 end
 
-function get_2d_regions_old(coords::Vector{Tuple{Int,Int}})
+function get_2d_regions_old(coords::Vector{Tuple{Int, Int}})
     # Given a list of sorted (column, row) points, we find 2d contiguous rectangles.
 
 
@@ -91,7 +91,7 @@ function get_2d_regions_old(coords::Vector{Tuple{Int,Int}})
         return [(c:c, r:r)]
     end
 
-    regions = Vector{Tuple{UnitRange{Int},UnitRange{Int}}}()
+    regions = Vector{Tuple{UnitRange{Int}, UnitRange{Int}}}()
 
     # Make a copy so that we can be destructive to it to keep track of what we've handled thus far
     points = copy(coords)
@@ -154,6 +154,105 @@ function exprs_equal_with_offset(a::ExcelExpr, b::ExcelExpr, rows::Int, cols::In
     end
 end
 
+function offset_table_idx(idx::Int, fixed::Tuple{Bool, Bool}, offset::Int)
+    @match fixed begin
+        (true, true) => idx
+        (false, false) => idx + offset
+        (true, false) => idx:(idx+offset)
+        (false, true) => (idx+offset):idx
+    end
+end
+
+function offset_table_idx(idx::UnitRange{Int}, fixed::Tuple{Bool, Bool}, offset::Int)
+    @match fixed begin
+        (true, true) => idx
+        (false, false) => idx .+ offset
+        (true, false) => first(idx):(last(idx)+offset)
+        (false, true) => (first(idx)+offset):last(idx)
+    end
+end
+
+function equal_with_offset(a::FlatExpr, b::FlatExpr, rows::Int, cols::Int)
+    if length(a.parts) != length(b.parts)
+        return false
+    end
+
+    for i in eachindex(a.parts)
+        a_expr = a.parts[i]
+        b_expr = b.parts[i]
+        if a_expr.head != b_expr.head || length(a_expr.args) != length(b_expr.args)
+            return false
+        end
+        if a_expr.head == :cell_ref
+            a_coords = parse_cell(a_expr.args[1])
+            b_cell = b_expr.args[1]
+            b_coords = parse_cell(b_cell)
+            if !(cell_fixed_row(b_cell))
+                b_coords = b_coords .+ (0, rows)
+                # b_coords[2] += rows
+            end
+            if !(cell_fixed_col(b_cell))
+                b_coords = b_coords .+ (cols, 0)
+                # b_coords[1] += rows
+            end
+
+            if a_coords != b_coords
+                return false
+            end
+
+            # if a_expr.args[1] != offset_cell_str(b_expr.args[1], rows, cols)
+            #     return false
+            # end
+
+            if !(@view(a_expr.args[2:end]) == @view(b_expr.args[2:end]))
+                return false
+            end
+
+        elseif a_expr.head == :table_ref
+            a_args = a_expr.args
+            b_args = b_expr.args
+            # Tables equal
+            # !isequal(a_args[1], b_args[1]) && return false
+
+            row_idx = b_args[2]
+            col_idx = b_args[3]
+            fixed_row::Tuple{Bool, Bool} = b_args[4]
+            row_idx = offset_table_idx(row_idx, fixed_row, rows)
+            # row_idx = @match fixed_row begin
+            #     (true, true) => row_idx
+            #     (false, false) => begin
+            #         @match row_idx begin
+            #             ::Int => row_idx + rows
+            #             _ => (first(row_idx)+rows):(last(row_idx)+rows)
+            #         end
+            #     end
+            #     (true, false) => first(row_idx):(last(row_idx)+rows)
+            #     (false, true) => (first(row_idx)+rows):last(row_idx)
+            # end
+            a_args[2] != row_idx && return false
+
+            fixed_col::Tuple{Bool, Bool} = b_args[4]
+            col_idx = offset_table_idx(col_idx, fixed_col, cols)
+            # col_idx = @match fixed_col begin
+            #     (true, true) => col_idx
+            #     (false, false) => col_idx .+ cols
+            #     (true, false) => first(col_idx):(last(col_idx)+cols)
+            #     (false, true) => (first(col_idx)+cols):last(col_idx)
+            # end
+
+            a_args[3] != col_idx && return false
+            a_args[4] != b_args[4] && return false
+            a_args[5] != b_args[5] && return false
+
+            # !isequal(a_expr, offset(b_expr, rows, cols)) && return false
+        end
+        # if !equal_with_offset(a.parts[i], b.parts[i], rows, cols)
+        #     return false
+        # end
+    end
+    return true
+end
+
 function equal_with_offset(a, b, rows::Int, cols::Int)
     if (a isa ExcelExpr) && (b isa ExcelExpr)
         return exprs_equal_with_offset(a, b, rows, cols)
@@ -172,8 +271,8 @@ function table_statements_have_same_equation(a::TableStatement, b::TableStatemen
     end
 
     base_expr = a.rhs_expr
-    row_a, col_a = a.lhs_expr.args[2:3]
-    row_b, col_b = b.lhs_expr.args[2:3]
+    row_a, col_a = @view a.lhs_expr.args[2:3]
+    row_b, col_b = @view b.lhs_expr.args[2:3]
 
     delta_y = row_a - row_b
     delta_x = col_a - col_b
@@ -222,7 +321,7 @@ function table_broadcast_transform_2d!(statements::Vector{AbstractStatement})
     # @time closure = transitiveclosure(stmt_graph)
     topo_sorted = topological_sort(reverse(stmt_graph))
     stmt_topo_levels = get_topo_levels_top_down(stmt_graph)
-    stmt_to_level = Dict((stmt => stmt_topo_levels[i]) for (i, stmt) in enumerate(statements))
+    # stmt_to_level = Dict((stmt => stmt_topo_levels[i]) for (i, stmt) in enumerate(statements))
     # table_statements::Vector{TableStatement} = filter(s -> isa(s, TableStatement), statements)
     table_statement_idxs::Vector{Int64} = filter(i -> isa(statements[i], TableStatement), eachindex(statements))
     # node_nums = used_subset.node_nums
@@ -230,6 +329,18 @@ function table_broadcast_transform_2d!(statements::Vector{AbstractStatement})
 
     function get_stmt_table(stmt::TableStatement)
         stmt.lhs_expr.args[1]
+    end
+
+    function num_parts(::Any)
+        1
+    end
+    function num_parts(e::FlatExpr)
+        length(e.parts)
+    end
+
+    function get_stmt_num_expr_parts(stmt::TableStatement)
+        expr = stmt.rhs_expr
+        num_parts(stmt.rhs_expr)
     end
 
     path_seen = zeros(Bool, nv(stmt_graph))
@@ -247,14 +358,28 @@ function table_broadcast_transform_2d!(statements::Vector{AbstractStatement})
         end
     end
 
+    # get_num_parts = i -> length(statements[i].rhs_expr.parts)
+    get_num_parts = i -> get_stmt_num_expr_parts(statements[i])
+
+    inner_group_by_func = (i, j) -> (get_num_parts(i) == get_num_parts(j)) && table_statements_have_same_equation(statements[i], statements[j]) && is_independent(i, j)
+
     # same_table_and_level = group_to_dict(table_statement_idxs, i -> (get_stmt_table(statements[i]), stmt_topo_levels[i]))
     same_table_and_level = group_to_dict(table_statement_idxs, i -> get_stmt_table(statements[i]))
+    @show length(same_table_and_level)
     groups = Vector{Vector{Int64}}()
-    for group in values(same_table_and_level)
+    @time "grouping" for group in values(same_table_and_level)
+        # @show length(group)
         # @time closure = transitiveclosure(stmt_graph)
+        same_num_parts = group_to_dict(group, get_num_parts)
+        # @show length(same_num_parts)
+        for sub_group in values(same_num_parts)
+            # @show sub_group
+            same_equations = group_by(sub_group, inner_group_by_func)
+            append!(groups, same_equations)
+        end
         # same_equations = group_by(group, (i, j) -> table_statements_have_same_equation(statements[i], statements[j]) && not_interdependent(closure, i, j))
-        same_equations = group_by(group, (i, j) -> table_statements_have_same_equation(statements[i], statements[j]) && is_independent(i, j))
-        append!(groups, same_equations)
+        # same_equations = group_by(group, inner_group_by_func)
+        # append!(groups, same_equations)
     end
 
     new_statements = copy(statements)
@@ -280,7 +405,8 @@ function table_broadcast_transform_2d!(statements::Vector{AbstractStatement})
         coords = zip(col_nums, row_nums) |> collect
         coord_to_statement = Dict(c => s for (c, s) in zip(coords, group))
 
-        regions = get_2d_regions(sort(coords))
+        sort!(coords)
+        regions = get_2d_regions(coords)
         # println("Group size = $(length(group))")
         for region in regions
             cols, rows = region
@@ -294,8 +420,10 @@ function table_broadcast_transform_2d!(statements::Vector{AbstractStatement})
             # end
 
 
-            region_coords = vec([(c, r) for c in cols, r in rows])
-            run_statements = [coord_to_statement[coord] for coord in region_coords]
+            # region_coords = vec([(c, r) for c in cols, r in rows])
+            # run_statements = [coord_to_statement[coord] for coord in region_coords]
+            # region_coords = vec([(c, r) for c in cols, r in rows])
+            run_statements = vec([coord_to_statement[(c, r)] for c in cols, r in rows])
 
             first_expr = statements[run_statements[1]].rhs_expr
 
@@ -304,7 +432,7 @@ function table_broadcast_transform_2d!(statements::Vector{AbstractStatement})
             catch ex
                 @show ex
                 @show sheet rows cols
-                println("Failed to broadcast, would have broadcasted a run of $(length(region_coords))")
+                println("Failed to broadcast, would have broadcasted a run of $(region_area)")
 
                 statement_group = statements[run_statements]
                 statement_set = Set(statement_group)
@@ -499,7 +627,7 @@ function table_broadcast_transform!(statements::Vector{AbstractStatement}, used_
                     println("$(example_statement.assigned_vars), $(length(group))")
                 end
                 get_row_num = s -> rownum(s.assigned_vars[1])
-                sorted_statements = sort(group, by=get_row_num)
+                sorted_statements = sort(group, by = get_row_num)
                 # @show get_row_num.(sorted_statements)
 
 

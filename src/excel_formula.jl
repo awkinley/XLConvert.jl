@@ -14,14 +14,14 @@ include("./functions/comparison.jl")
 flatten(arr::AbstractArray) = reduce(vcat, arr)
 flatten(arr) = arr
 
-function offset_cell_str(cell::String, rows::Int, cols::Int)
+function offset_cell_str(cell::T, rows::Int, cols::Int) where {T<:AbstractString}
     first_let = findfirst(c -> 'A' <= c <= 'Z', cell)
     first_num = findfirst(isdigit, cell)
 
     col_str = if cell[first_num-1] == '$'
-        @view cell[first_let:first_num-2]
+        @view cell[first_let:(first_num-2)]
     else
-        @view cell[first_let:first_num-1]
+        @view cell[first_let:(first_num-1)]
     end
     row_str = @view cell[first_num:end]
 
@@ -56,8 +56,11 @@ function offset(expr::ExcelExpr, rows::Int, cols::Int)
 
     @match expr begin
         ExcelExpr(:cell_ref, args) => begin
-            new_cell = offset_cell_str(args[1], rows, cols)
-            ExcelExpr(:cell_ref, new_cell, args[2:end]...)
+            new_args = copy(args)
+            # new_cell = offset_cell_str(args[1], rows, cols)
+            new_args[1] = offset_cell_str(new_args[1], rows, cols)
+            # ExcelExpr(:cell_ref, new_cell, args[2:end]...)
+            ExcelExpr(:cell_ref, new_args)
             # cell_match = match(offset_cell_parse_rgx, args[1])
             # @assert cell_match.match == args[1] "Cell didn't parse properly"
             # col_str = cell_match[1]
@@ -85,17 +88,17 @@ function offset(expr::ExcelExpr, rows::Int, cols::Int)
             row_idx = @match fixed_row begin
                 (true, true) => row_idx
                 (false, false) => row_idx .+ rows
-                (true, false) => first(row_idx):last(row_idx)+rows
-                (false, true) => first(row_idx)+rows:last(row_idx)
+                (true, false) => first(row_idx):(last(row_idx)+rows)
+                (false, true) => (first(row_idx)+rows):last(row_idx)
             end
             col_idx = @match fixed_col begin
                 (true, true) => col_idx
                 (false, false) => col_idx .+ cols
-                (true, false) => first(col_idx):last(col_idx)+cols
-                (false, true) => first(col_idx)+cols:last(col_idx)
+                (true, false) => first(col_idx):(last(col_idx)+cols)
+                (false, true) => (first(col_idx)+cols):last(col_idx)
             end
 
-            ExcelExpr(:table_ref, table, row_idx, col_idx, fixed_row, fixed_col)
+            ExcelExpr(:table_ref, Any[table, row_idx, col_idx, fixed_row, fixed_col])
         end
         _ => begin
             new_args = similar(args)
@@ -111,14 +114,14 @@ end
 
 
 struct SheetValues1
-    cell_values
+    cell_values::Any
 end
 SheetValues = SheetValues1
 # abstract type XLContext end
 struct ExcelContext5
-    current_sheet
-    sheets
-    key_values
+    current_sheet::Any
+    sheets::Any
+    key_values::Any
 end
 ExcelContext = ExcelContext5
 function get_cell_value(ctx::SheetValues, cell)
@@ -136,7 +139,7 @@ end
 function get_key_value(ctx::ExcelContext, key)
     ctx.key_values[key]
 end
-function exec(expr::T, ctx::ExcelContext) where {T<:Number}
+function exec(expr::T, ctx::ExcelContext) where {T <: Number}
     expr
 end
 function exec(expr::String, ctx::ExcelContext)
@@ -153,14 +156,14 @@ function old_parse_cell(cell)
     (XLSX.decode_column_number(col_str), parse(Int, row_str))
 end
 
-function parse_cell(cell::T) where {T<:AbstractString}
+function parse_cell(cell::T) where {T <: AbstractString}
     first_let = findfirst(c -> 'A' <= c <= 'Z', cell)
     first_num = findfirst(isdigit, cell)
     # cell_match = match(cell_parse_rgx, cell)
     col_str = if cell[first_num-1] == '$'
-        @view cell[first_let:first_num-2]
+        @view cell[first_let:(first_num-2)]
     else
-        @view cell[first_let:first_num-1]
+        @view cell[first_let:(first_num-1)]
     end
     # @assert cell_match.match == cell "Cell didn't parse properly"
     # col_str = cell_match[1]
@@ -191,7 +194,7 @@ function rangetomatrix(ctx::ExcelContext, lhs::String, rhs::String)
     reduce(hcat, output)
 end
 
-missing_to(value, default=0.0) = ismissing(value) ? default : value
+missing_to(value, default = 0.0) = ismissing(value) ? default : value
 
 function eval(value, ctx::ExcelContext)
     value
@@ -201,11 +204,11 @@ function eval(expr::ExcelExpr, ctx::ExcelContext)
 end
 function exec(expr::ExcelExpr, ctx::ExcelContext)
     result = @match expr begin
-        ExcelExpr(:cell_ref, [cell,]) => get_cell_value(ctx, clean_cell(cell))
+        ExcelExpr(:cell_ref, [cell]) => get_cell_value(ctx, clean_cell(cell))
         ExcelExpr(:cell_ref, [cell, sheet]) => get_cell_value(ctx, clean_cell(cell))
-        ExcelExpr(:+, [unary,]) => exec(unary, ctx)
+        ExcelExpr(:+, [unary]) => exec(unary, ctx)
         ExcelExpr(:+, [lhs, rhs]) => xl_add(missing_to(exec(lhs, ctx)), missing_to(exec(rhs, ctx)))
-        ExcelExpr(:-, [unary,]) => -1 * exec(unary, ctx)
+        ExcelExpr(:-, [unary]) => -1 * exec(unary, ctx)
         ExcelExpr(:-, [lhs, rhs]) => xl_sub(missing_to(exec(lhs, ctx)), missing_to(exec(rhs, ctx)))
         ExcelExpr(:*, [lhs, rhs]) => missing_to(exec(lhs, ctx)) * missing_to(exec(rhs, ctx))
         ExcelExpr(:/, [lhs, rhs]) => missing_to(exec(lhs, ctx)) / missing_to(exec(rhs, ctx))
@@ -219,7 +222,7 @@ function exec(expr::ExcelExpr, ctx::ExcelContext)
         ExcelExpr(:gt, [lhs, rhs]) => xl_gt(exec(lhs, ctx), exec(rhs, ctx))
         ExcelExpr(:range, [lhs, rhs]) => rangetomatrix(ctx, exec_to_cell(lhs), exec_to_cell(rhs))
         ExcelExpr(:sheet_ref, [sheet_name, ref]) => exec(ref, with_current_sheet(ctx, sheet_name))
-        ExcelExpr(:named_range, [name,]) => exec(get_key_value(ctx, name), ctx)
+        ExcelExpr(:named_range, [name]) => exec(get_key_value(ctx, name), ctx)
         ExcelExpr(:call, ["IF", args...]) => xl_logical(eval(args[1], ctx)) ? exec(args[2], ctx) : exec(args[3], ctx)
         ExcelExpr(:call, [fn_name, args...]) => eval_function(ctx, fn_name, args)
     end
@@ -241,9 +244,9 @@ function eval_function(ctx::ExcelContext, fn_name, raw_args)
         "SQRT" => sqrt(args...)
         "AND" => all(args)
         "RAND" => rand()
-        "ROUND" => round(args[1], RoundNearestTiesUp, digits=Int(args[2]))
-        "ROUNDUP" => round(args[1], RoundFromZero, digits=Int(args[2]))
-        "ROUNDDOWN" => round(args[1], RoundToZero, digits=Int(args[2]))
+        "ROUND" => round(args[1], RoundNearestTiesUp, digits = Int(args[2]))
+        "ROUNDUP" => round(args[1], RoundFromZero, digits = Int(args[2]))
+        "ROUNDDOWN" => round(args[1], RoundToZero, digits = Int(args[2]))
         "FLOOR" => xl_floor(args...)
         "MAX" => xl_max(ctx, raw_args...)
         "MIN" => xl_min(args...)
@@ -265,7 +268,7 @@ end
 
 asarray(x) = [x]
 
-function asarray(a::T) where {T<:Number}
+function asarray(a::T) where {T <: Number}
     [a]
 end
 function asarray(x::Vector{Vector})
@@ -326,8 +329,8 @@ function xl_average(args...)
 end
 
 xl_mod(a, b) = mod(a, b)
-xl_mod(a::AbstractArray, b::T) where {T<:AbstractFloat} = mod.(a, b)
-xl_mod(a::T, b::AbstractArray) where {T<:AbstractFloat} = mod.(a, b)
+xl_mod(a::AbstractArray, b::T) where {T <: AbstractFloat} = mod.(a, b)
+xl_mod(a::T, b::AbstractArray) where {T <: AbstractFloat} = mod.(a, b)
 
 function xl_pmt(rate, nper, pv)
     -1 * sign(pv) * (pv * rate) / (1 - (1 + rate)^(-nper))
@@ -339,7 +342,7 @@ function xl_median(args...)
     median(filtered_args)
 end
 
-function xl_min(v::T) where {T<:Number}
+function xl_min(v::T) where {T <: Number}
     v
 end
 function xl_min(arr::AbstractArray)
@@ -349,7 +352,7 @@ end
 function xl_min(args...)
     minimum(map(xl_min, args))
 end
-function xl_max(v::T) where {T<:Number}
+function xl_max(v::T) where {T <: Number}
     v
 end
 notmissing(x) = !ismissing(x)
@@ -485,13 +488,13 @@ end
 
 function exec_to_cell(expr::ExcelExpr)
     @match expr begin
-        ExcelExpr(:cell_ref, [cell,]) => cell
+        ExcelExpr(:cell_ref, [cell]) => cell
     end
 end
 
 
 xl_compare(v1, v2) = v1 == v2
-xl_compare(v1::Number, v2::Number) = isapprox(v1, v2, atol=1e-10, rtol=√eps())
+xl_compare(v1::Number, v2::Number) = isapprox(v1, v2, atol = 1e-10, rtol = √eps())
 xl_compare(v1::Number, v2::Dates.Day) = v1 == Dates.value(v2)
 xl_compare(v1::Dates.Day, v2::Number) = Dates.value(v1) == v2
 xl_compare(v1::String, v2::String) = v1 == v2

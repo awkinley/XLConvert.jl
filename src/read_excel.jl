@@ -147,7 +147,7 @@ function test_sheet_eval(xl, sheet_idx)
     sheet_name = sheets[sheet_idx]
     xl_ctx = ExcelContext(sheet_name,
         Dict([(name => xl[name]) for name in XLSX.sheetnames(xl)]),
-        Dict((p[1] => toexpr(parse_formula(repr(p[2])))) for p in XLSX.get_workbook(xl).workbook_names)
+        Dict((p[1] => toexpr(parse_formula(repr(p[2])))) for p in XLSX.get_workbook(xl).workbook_names),
     )
 
     println("Sheet: $(sheet_name)")
@@ -314,11 +314,55 @@ function get_expr_dependencies(expr, key_values::Dict)
     return []
 end
 
+function get_expr_dependencies(expr::FlatExpr, key_values::Dict)
+    deps = Vector{CellDependency}()
+    handled = Set{Int}()
+    for (i, part) in enumerate(expr.parts)
+        i in handled && continue
+
+        @match part begin
+            ExcelExpr(:cell_ref, [cell, sheet]) => push!(deps, CellDependency(sheet, cell))
+            # ExcelExpr(:sheet_ref, (sheet_name, ref)) => get_expr_dependencies(ref, key_values)
+            ExcelExpr(:named_range, [name]) => get_expr_dependencies(key_values[name], key_values)
+            ExcelExpr(:range, [FlatIdx(lhs_i), FlatIdx(rhs_i)]) => begin
+                lhs_expr = expr.parts[lhs_i]
+                rhs_expr = expr.parts[rhs_i]
+                if !((lhs_expr.head == :cell_ref) && (rhs_expr.head == :cell_ref))
+                    throw("Don't know how to get dependencies for $(expr)")
+                end
+                sheet = lhs_expr.args[2]
+                if (sheet != rhs_expr.args[2])
+                    throw("Don't know how to get dependencies for $(expr)")
+                end
+
+                lhs = lhs_expr.args[1]
+                rhs = rhs_expr.args[1]
+
+                start_col, start_row = parse_cell(lhs)
+                end_col, end_row = parse_cell(rhs)
+
+                @assert end_row >= start_row
+                @assert end_col >= start_col
+
+                for col in start_col:end_col, r in start_row:end_row
+                    push!(deps, CellDependency(sheet, index_to_cellname(col, r)))
+                end
+
+                push!(handled, lhs_i)
+                push!(handled, rhs_i)
+            end
+            _ => continue
+        end
+    end
+
+    deps
+end
+
 function get_expr_dependencies(expr::ExcelExpr, key_values::Dict)
     @match expr begin
         ExcelExpr(:cell_ref, [cell, sheet]) => [CellDependency(sheet, cell)]
         # ExcelExpr(:sheet_ref, (sheet_name, ref)) => get_expr_dependencies(ref, key_values)
-        ExcelExpr(:named_range, [name,]) => get_expr_dependencies(key_values[name], key_values)
+        ExcelExpr(:named_range, [name]) => get_expr_dependencies(key_values[name], key_values)
         ExcelExpr(:range, [ExcelExpr(:cell_ref, [lhs, sheet]), ExcelExpr(:cell_ref, [rhs, sheet])]) => begin
             start_col, start_row = parse_cell(lhs)
             end_col, end_row = parse_cell(rhs)
@@ -337,8 +381,14 @@ function get_expr_dependencies(expr::ExcelExpr, key_values::Dict)
         # TODO: Handle?
         ExcelExpr(:range, [lhs, rhs]) => throw("Don't know how to get dependencies for $(expr)")
         ExcelExpr(op, args) => begin
-            mapped = map(a -> get_expr_dependencies(a, key_values), args)
-            reduce(vcat, mapped)
+            res = Vector{CellDependency}()
+            for a in args
+                append!(res, get_expr_dependencies(a, key_values))
+            end
+            res
+            # mapped = map(a -> get_expr_dependencies(a, key_values), args)
+            # reduce(vcat, mapped)
+            # flatten_nested_vecs(mapped)
         end
     end
 end
@@ -346,7 +396,7 @@ end
 function make_ctx(current_sheet, xl)
     ExcelContext(current_sheet,
         Dict([(name => xl[name]) for name in XLSX.sheetnames(xl)]),
-        Dict((p[1] => toexpr(parse_formula(repr(p[2])))) for p in XLSX.get_workbook(xl).workbook_names)
+        Dict((p[1] => toexpr(parse_formula(repr(p[2])))) for p in XLSX.get_workbook(xl).workbook_names),
     )
 end
 
@@ -363,10 +413,10 @@ end
 function get_topo_levels_bottom_up(wb::WorkbookSubset)
     topo_sorted = topological_sort(reverse(wb.graph))
 
-    topo_levels = Dict{Int64,Int64}()
+    topo_levels = Dict{Int64, Int64}()
     for node in filter(v -> v ∈ wb.used_nodes, topo_sorted)
         dependencies = outneighbors(wb.graph, node)
-        topo_levels[node] = maximum(k -> topo_levels[k] + 1, dependencies; init=0)
+        topo_levels[node] = maximum(k -> topo_levels[k] + 1, dependencies; init = 0)
     end
 
     topo_levels
@@ -375,10 +425,10 @@ end
 function get_topo_levels_bottom_up(graph::SimpleDiGraph)
     topo_sorted = topological_sort(reverse(graph))
 
-    topo_levels = Dict{Int64,Int64}()
+    topo_levels = Dict{Int64, Int64}()
     for node in topo_sorted
         dependencies = outneighbors(graph, node)
-        topo_levels[node] = maximum(k -> topo_levels[k] + 1, dependencies; init=0)
+        topo_levels[node] = maximum(k -> topo_levels[k] + 1, dependencies; init = 0)
     end
 
     topo_levels
@@ -387,14 +437,14 @@ end
 function get_topo_levels_top_down(graph::SimpleDiGraph)
     topo_sorted = topological_sort(graph)
 
-    topo_levels = Dict{Int64,Int64}()
+    topo_levels = Dict{Int64, Int64}()
     for node in topo_sorted
         # We have to filter in this case, and not in the bottom up case
         # because it's not possible for a cell to depend on a value not in used_nodes
         # but it is possible for a cell not in used_nodes to depend on one that is
         dependents = inneighbors(graph, node)
         # topo_levels[node] = minimum(map(k -> topo_levels[k] - 1, dependents); init=0)
-        topo_levels[node] = minimum(k -> topo_levels[k] - 1, dependents; init=0)
+        topo_levels[node] = minimum(k -> topo_levels[k] - 1, dependents; init = 0)
     end
 
     # Will be a negative number
@@ -412,13 +462,13 @@ end
 function get_topo_levels_top_down(wb::WorkbookSubset)
     topo_sorted = topological_sort(wb.graph)
 
-    topo_levels = Dict{Int64,Int64}()
+    topo_levels = Dict{Int64, Int64}()
     for node in filter(v -> v ∈ wb.used_nodes, topo_sorted)
         # We have to filter in this case, and not in the bottom up case
         # because it's not possible for a cell to depend on a value not in used_nodes
         # but it is possible for a cell not in used_nodes to depend on one that is
         dependents = filter(in(wb.used_nodes), inneighbors(wb.graph, node))
-        topo_levels[node] = minimum(k -> topo_levels[k] - 1, dependents; init=0)
+        topo_levels[node] = minimum(k -> topo_levels[k] - 1, dependents; init = 0)
     end
 
     # Will be a negative number
@@ -440,6 +490,95 @@ end
 
 
 insert_table_refs(expr, tables) = expr
+
+function cell_fixed_row(cell::String)
+    cell[1] == '$'
+end
+
+function cell_fixed_col(cell::String)
+    cell[1] == '$'
+
+    first_num = findfirst(isdigit, cell)
+
+    cell[first_num-1] == '$'
+end
+
+function insert_table_refs(expr::FlatExpr, tables)
+    # @info "In primary insert_table_refs" expr
+
+    new_expr = copy(expr)
+
+    deps = Vector{CellDependency}()
+    handled = Set{Int}()
+    for (i, part) in enumerate(new_expr.parts)
+        i in handled && continue
+        @match part begin
+            ExcelExpr(:cell_ref, [cell, sheet::String]) => begin
+                c, r = parse_cell(cell)
+                for table in tables
+                    if (sheet == table.sheet_name
+                        &&
+                        (r, c) in table)
+                        row_idx = r - startrow(table) + 1
+                        col_idx = c - startcol(table) + 1
+                        fixed_row = cell_fixed_row(cell)
+                        fixed_col = cell_fixed_col(cell)
+                        # fixed_row = offset(expr, 1, 0) == expr
+                        # fixed_col = offset(expr, 0, 1) == expr
+
+                        new_expr.parts[i] = ExcelExpr(:table_ref, Any[table, row_idx, col_idx, (fixed_row, fixed_row), (fixed_col, fixed_col)])
+                    end
+                end
+            end
+            # ExcelExpr(:sheet_ref, (sheet_name, ref)) => ExcelExpr(:sheet_ref, sheet_name, insert_table_refs(ref, tables))
+            # ExcelExpr(:named_range, (name,)) => convert_to_broadcasted(get_key_value(ctx, name), ctx, row_offset, col_offset)
+
+            ExcelExpr(:range, [FlatIdx(lhs_i), FlatIdx(rhs_i)]) => begin
+                lhs_expr = new_expr.parts[lhs_i]
+                rhs_expr = new_expr.parts[rhs_i]
+                if !((lhs_expr.head == :cell_ref) && (rhs_expr.head == :cell_ref))
+                    throw("Don't know how to get dependencies for $(expr)")
+                end
+                sheet = lhs_expr.args[2]
+                if (sheet != rhs_expr.args[2])
+                    throw("Don't know how to get dependencies for $(expr)")
+                end
+
+                lhs = lhs_expr.args[1]
+                rhs = rhs_expr.args[1]
+
+                start_c, start_r = parse_cell(lhs)
+                stop_c, stop_r = parse_cell(rhs)
+
+                for table in tables
+                    if (sheet == table.sheet_name
+                        && (start_r, start_c) in table
+                        && (stop_r, stop_c) in table)
+                        col_idx = (start_c:stop_c) .- startcol(table) .+ 1
+                        row_start_idx = start_r - startrow(table) + 1
+                        row_stop_idx = stop_r - startrow(table) + 1
+
+                        # is_fixed_row(expr) = offset(expr, 1, 0) == expr
+                        # is_fixed_col(expr) = offset(expr, 0, 1) == expr
+                        fixed_row = (cell_fixed_row(lhs), cell_fixed_row(rhs))
+                        fixed_col = (cell_fixed_col(lhs), cell_fixed_col(rhs))
+                        # fixed_row = tuple(is_fixed_row.(part.args)...)
+                        # fixed_col = tuple(is_fixed_col.(part.args)...)
+
+                        new_expr.parts[i] = ExcelExpr(:table_ref, Any[table, row_start_idx:row_stop_idx, col_idx, fixed_row, fixed_col])
+
+                        push!(handled, lhs_i)
+                        push!(handled, rhs_i)
+
+                        continue
+                    end
+                end
+            end
+            _ => continue
+        end
+    end
+    new_expr
+end
 function insert_table_refs(expr::ExcelExpr, tables)
     # @info "In primary insert_table_refs" expr
     @match expr begin
@@ -478,7 +617,7 @@ function insert_table_refs(expr::ExcelExpr, tables)
             for table in tables
                 # @info "Checking table" ctx.current_sheet == table.sheet_name start_c >= startcol(table) stop_c <= endcol(table) start_r >= startrow(table) stop_r <= endrow(table)
                 if (sheet == table.sheet_name
-                    && (start_r, start_c) in table 
+                    && (start_r, start_c) in table
                     && (stop_r, stop_c) in table)
                     # && start_c >= startcol(table)
                     # && stop_c <= endcol(table)
@@ -614,10 +753,10 @@ function group_to_dict(values, get_key)
 end
 
 function group_to_dict(values::AbstractArray{T}, get_key) where {T}
-    res = Dict()
+    res = Dict{Any, Vector{T}}()
     for value in values
         k = get_key(value)
-        push!(get!(Vector, res, k), value)
+        push!(get!(Vector{T}, res, k), value)
         # if haskey(res, k)
         #     push!(res[k], value)
         # else
@@ -628,8 +767,8 @@ function group_to_dict(values::AbstractArray{T}, get_key) where {T}
 end
 
 
-iscontiguous(values::Vector{T}) where {T<:Integer} = values == minimum(values):maximum(values)
-function get_contiguous_runs(values::Vector{T}) where {T<:Integer}
+iscontiguous(values::Vector{T}) where {T <: Integer} = values == minimum(values):maximum(values)
+function get_contiguous_runs(values::Vector{T}) where {T <: Integer}
     if isempty(values)
         return values
     end
@@ -714,7 +853,7 @@ function convert_to_broadcasted(expr::ExcelExpr, row_offset, col_offset)
                 (true, true) => row_idx
                 (false, false) => begin
                     if length(row_idx) == 1
-                        row_idx[1]:row_idx[1]+row_offset
+                        row_idx[1]:(row_idx[1]+row_offset)
                     else
                         throw("Broadcasting table row range ref is complicated")
                     end
@@ -726,7 +865,7 @@ function convert_to_broadcasted(expr::ExcelExpr, row_offset, col_offset)
                 (true, true) => col_idx
                 (false, false) => begin
                     if length(col_idx) == 1
-                        col_idx[1]:col_idx[1]+col_offset
+                        col_idx[1]:(col_idx[1]+col_offset)
                     else
                         throw("Broadcasting table col range ref is complicated")
                     end
@@ -850,65 +989,78 @@ end
 function functionalize(expr, previous_params::Matrix{ExcelExpr})
     (expr, previous_params)
 end
-function functionalize(expr::ExcelExpr, previous_params::Matrix{ExcelExpr})
-    if expr.head in (:cell_ref, :sheet_ref, :named_range, :range, :table_ref)
-        (ExcelExpr(:func_param, Any[length(previous_params) + 1]), [previous_params... expr])
-        # push!(previous_params, expr)
-        # return ExcelExpr(:func_param, length(previous_params))
-    else
-        op = expr.head
-        args = expr.args
-        mapped_exprs = similar(args)
-        # mapped_exprs = []
-        # for a in args
-        for i in eachindex(args)
-            if typeof(args[i]) == ExcelExpr
-                e, previous_params = functionalize(args[i], previous_params)
-                mapped_exprs[i] = e
-            else
-                mapped_exprs[i] = args[i]
+
+function functionalize(expr::FlatExpr, previous_params::Vector{ExcelExpr})
+    to_remove = Vector{Int}()
+    for i in eachindex(expr.parts)
+        part = expr.parts[i]
+        if part.head in (:cell_ref, :sheet_ref, :named_range, :range, :table_ref)
+            for arg in part.args
+                if arg isa FlatIdx
+                    push!(to_remove, arg.i)
+                end
             end
-            # push!(mapped_exprs, e)
         end
-        # mapped = map(a -> functionalize(a, ctx, previous_params), args)
-        # (ExcelExpr(op, mapped_exprs...), previous_params)
-        (ExcelExpr(op, mapped_exprs), previous_params)
     end
-    # @match expr begin
-    #     ExcelExpr(:cell_ref, [cell, sheet]) => begin
-    #         (ExcelExpr(:func_param, length(previous_params) + 1), [previous_params... expr])
-    #     end
-    #     ExcelExpr(:sheet_ref, [sheet_name, ref]) => (ExcelExpr(:func_param, length(previous_params) + 1), [previous_params... expr])
-    #     ExcelExpr(:named_range, [name,]) => (ExcelExpr(:func_param, length(previous_params) + 1), [previous_params... expr])
-    #     ExcelExpr(:range, args) => begin
-    #         (ExcelExpr(:func_param, length(previous_params) + 1), [previous_params... expr])
-    #     end
+    new_parts = Vector{ExcelExpr}(undef, length(expr.parts) - length(to_remove))
+    add_i = 1
 
-    #     ExcelExpr(:table_ref, args) => (ExcelExpr(:func_param, length(previous_params) + 1), [previous_params... expr])
+    # new_expr = copy(expr)
+    # to_remove = Vector{Int}()
+    for i in eachindex(expr.parts)
+        i in to_remove && continue
 
-    #     # ExcelExpr(:call, ("IF", args...)) => begin
-    #     #     throw("Broadcasting if doesn't work!")
-    #     # end
-    #     # ExcelExpr(:range, (lhs, rhs)) => throw("Don't know how to get dependencies for $(expr)")
-    #     ExcelExpr(op, args) => begin
-    #         mapped_exprs = similar(args)
-    #         # mapped_exprs = []
-    #         # for a in args
-    #         for i in eachindex(args)
-    #             if args[i] isa ExcelExpr
-    #                 e, previous_params = functionalize(args[i], previous_params)
-    #                 mapped_exprs[i] = e
-    #             else
-    #                 mapped_exprs[i] = args[i]
-    #             end
-    #             # push!(mapped_exprs, e)
+        part = expr.parts[i]
+        if part.head in (:cell_ref, :sheet_ref, :named_range, :range, :table_ref)
+            push!(previous_params, convert_to_expr(part, expr))
+            new_parts[add_i] = ExcelExpr(:func_param, Any[length(previous_params)])
+        else
+            # new_args = similar(part.args)
+            if all(v -> !(v isa FlatIdx), part.args)
+                new_parts[add_i] = part
+                # push!(new_parts, part)
+            else
+                new_args = copy(part.args)
+                # for (i, arg) in enumerate(part.args)
+                for (i, arg) in enumerate(new_args)
+                    if arg isa FlatIdx
+                        offset = 0
+                        for t in to_remove
+                            if t < arg.i
+                                offset += 1
+                            end
+                        end
+
+                        new_i = arg.i - offset
+                        new_args[i] = FlatIdx(new_i)
+                    end
+                end
+                new_parts[add_i] = ExcelExpr(part.head, new_args)
+                # push!(new_parts, ExcelExpr(part.head, new_args))
+            end
+        end
+        add_i += 1
+    end
+
+    # new_parts = Vector{ExcelExpr}()
+    # for (i, part) in enumerate(new_expr.parts)
+    #     i in to_remove && continue
+
+    #     new_args = similar(part.args)
+
+    #     for (i, arg) in enumerate(part.args)
+    #         if arg isa FlatIdx
+    #             new_i = arg.i - sum(to_remove .< arg.i)
+    #             new_args[i] = FlatIdx(new_i)
+    #         else
+    #             new_args[i] = arg
     #         end
-    #         # mapped = map(a -> functionalize(a, ctx, previous_params), args)
-    #         # (ExcelExpr(op, mapped_exprs...), previous_params)
-    #         (ExcelExpr(op, mapped_exprs), previous_params)
-    #         # reduce(vcat, mapped)
     #     end
+    #     push!(new_parts, ExcelExpr(part.head, new_args))
     # end
+    # FlatExpr(filter(e -> e.head != :missing, new_expr.parts))
+    FlatExpr(new_parts)
+    # new_expr
 end
 
 function functionalize(expr)
@@ -917,7 +1069,7 @@ function functionalize(expr)
     (new_expr, permutedims(params))
 
     # params = Vector{ExcelExpr}()
-    
+
     # new_expr = functionalize!(deepcopy(expr), params)
     # (new_expr, permutedims(params))
 end
@@ -925,7 +1077,7 @@ end
 function compute_delayed_grouping(graph, used_nodes, max_level)
     topo_sorted = topological_sort(graph)
 
-    topo_levels = Dict{Int64,Int64}()
+    topo_levels = Dict{Int64, Int64}()
     for node in filter(v -> v ∈ used_nodes, topo_sorted)
         dependents = filter(in(used_nodes), inneighbors(graph, node))
         if isempty(dependents)
@@ -956,7 +1108,7 @@ function find_level_compressions(graph, used_nodes, grouped_by_level, topo_level
 
 
         if length(level_limiters) == 1
-            max_compress_level = maximum(filter(l -> l != node_level - 1, dep_levels), init=0)
+            max_compress_level = maximum(filter(l -> l != node_level - 1, dep_levels), init = 0)
             true, dependencies[level_limiters[1]], max_compress_level
         else
             false, missing, node_level
@@ -992,7 +1144,7 @@ function find_level_compressions(graph, used_nodes, grouped_by_level, topo_level
                 for n in compress_group
                     dependants = filter(neighbor -> (neighbor in used_nodes) && !(neighbor in compress_group), inneighbors(graph, n))
                     limits = [topo_levels[n] - 1 for n in dependants]
-                    insert_level = min(insert_level, minimum(limits; init=max_level))
+                    insert_level = min(insert_level, minimum(limits; init = max_level))
                     # println("\t$(var_names_map[all_referenced_nodes[n]])")
                 end
                 @show insert_level
@@ -1028,7 +1180,7 @@ function find_level_compressions(graph, used_nodes, grouped_by_level, topo_level
         return minimum(limits)
     end
 
-    new_topo_levels = Dict{Int64,Int64}()
+    new_topo_levels = Dict{Int64, Int64}()
     for (level, level_nodes) in new_grouped_by_level
         for n in level_nodes
             new_topo_levels[n] = level
@@ -1062,21 +1214,48 @@ function find_level_compressions(graph, used_nodes, grouped_by_level, topo_level
     new_grouped_by_level
 end
 
-function group_by(itr::AbstractArray{T}, by) where {T}
+function group_by(itr::Vector{T}, by) where {T}
 
     groups = Vector{Vector{T}}()
+    # find_func = (item, g) -> by(item, first(g))
 
     for item in itr
-        ind = findfirst(g -> by(item, first(g)), groups)
-        if ind === nothing
-            push!(groups, [item])
-        else
-            push!(groups[ind], item)
+        for g in groups
+            if by(item, first(g))
+                push!(g, item)
+                break
+            end
         end
+        push!(groups, [item])
+        # # ind = findfirst(g -> by(item, first(g)), groups)
+        # ind = findfirst(Base.Fix1(find_func, item), groups)
+        # if ind === nothing
+        #     push!(groups, [item])
+        # else
+        #     push!(groups[ind], item)
+        # end
     end
 
     groups
 end
+
+# function group_by(itr::AbstractArray{T}, by) where {T}
+
+#     groups = Vector{Vector{T}}()
+#     find_func = (item, g) -> by(item, first(g))
+
+#     for item in itr
+#         # ind = findfirst(g -> by(item, first(g)), groups)
+#         ind = findfirst(Base.Fix1(find_func, item), groups)
+#         if ind === nothing
+#             push!(groups, [item])
+#         else
+#             push!(groups[ind], item)
+#         end
+#     end
+
+#     groups
+# end
 
 # This function is currently unused
 # function find_column_ops(table::ExcelTable, all_cell_dict::Dict{CellDependency,CellTypes}, topo_levels::Dict{Int64,Int64}, node_nums, var_names)
@@ -1116,7 +1295,7 @@ function find_column_ops(table::ExcelTable, used_subset::WorkbookSubset, topo_le
         end
     end
 
-    resulting_lines = Dict{Int64,Vector{Any}}()
+    resulting_lines = Dict{Int64, Vector{Any}}()
 
     for col in startcol(table):endcol(table)
         # row = startrow(table)
@@ -1233,7 +1412,7 @@ function make_input_struct(all_dependencies, cell_dict, dependency_dict, used_no
 
     lines = Vector{String}()
     table_assigment_lines = Vector{String}()
-    input_name_map = Dict{CellDependency,String}()
+    input_name_map = Dict{CellDependency, String}()
 
     push!(lines, "@kwdef struct Inputs")
     function in_table(cell, table)
@@ -1301,7 +1480,7 @@ function get_level_dependencies(grouped_by_level, workbook_subset::WorkbookSubse
     for level in sort(collect(keys(grouped_by_level)))
         cells = map(n -> all_cells[n], grouped_by_level[level])
         all_cell_deps = [dependencies[c] for c in cells if c in keys(dependencies)]
-        level_deps = reduce(union, all_cell_deps, init=[])
+        level_deps = reduce(union, all_cell_deps, init = [])
 
         cell_deps = []
         table_deps = []
@@ -1362,7 +1541,7 @@ end
 
 
 function make_cell_to_statement_dict(statements::Vector{AbstractStatement})
-    cell_to_statement = Dict{CellDependency,AbstractStatement}()
+    cell_to_statement = Dict{CellDependency, AbstractStatement}()
     for statement in statements
         set_cells = get_set_cells(statement)
         for cell in set_cells
@@ -1397,7 +1576,7 @@ function make_statement_graph(statements::Vector{AbstractStatement})
     #     end
     # end
 
-    statement_nums = Dict{AbstractStatement,Int64}([n => i for (i, n) in enumerate(statements)])
+    statement_nums = Dict{AbstractStatement, Int64}([n => i for (i, n) in enumerate(statements)])
     # adj_matrix = zeros(Bool, (length(statements), length(statements)))
 
     edge_list = Vector{Edge{Int64}}()
@@ -1458,7 +1637,7 @@ function export_statements_optimized(io::IO, exporter, wb::ExcelWorkbook, statem
 
     stmt_graph = make_statement_graph_relaxed(non_input_statements)
 
-    @time optimized_order, costs = optimized_topological_sa_big_jump(reverse(stmt_graph), ; distance_decay=0.5, iterations=10000000, initial_temp=20, cooling_rate=0.9999995)
+    @time optimized_order, costs = optimized_topological_sa_big_jump(reverse(stmt_graph), ; distance_decay = 0.5, iterations = 10000000, initial_temp = 20, cooling_rate = 0.9999995)
 
     # @time optimized_order, costs = optimized_topological_sa_big_jump(reverse(stmt_graph); starting_order=nothing, distance_decay=0.5, iterations=1000000, initial_temp=15, cooling_rate=0.99999)
     # sorted_order = topological_sort(reverse(stmt_graph))
@@ -1494,7 +1673,7 @@ function export_statements_levels_with_moving(io::IO, exporter, wb::ExcelWorkboo
     for level in 0:max_level
         level_statement_idx = [kv.first for kv in stmt_topo_levels if (kv.second == level) && !(kv.first in input_statements)]
 
-        sort!(level_statement_idx, by=i -> get_set_cells(statements[i])[1])
+        sort!(level_statement_idx, by = i -> get_set_cells(statements[i])[1])
 
         push!(level_order_indices, level_statement_idx)
     end
@@ -1502,7 +1681,7 @@ function export_statements_levels_with_moving(io::IO, exporter, wb::ExcelWorkboo
     for _ in 1:1
         any_moved = false
 
-        for level in max_level-2:-1:2
+        for level in (max_level-2):-1:2
             stmt_idxs = level_order_indices[level]
             new_level_order_indices = []
 
@@ -1581,7 +1760,7 @@ function export_statements_levels(io::IO, exporter, wb::ExcelWorkbook, statement
         level_statement_idx = [kv.first for kv in stmt_topo_levels if (kv.second == level) && !(kv.first in input_statements)]
         level_statements = statements[level_statement_idx]
 
-        level_statements = sort(level_statements, by=s -> get_set_cells(s)[1])
+        level_statements = sort(level_statements, by = s -> get_set_cells(s)[1])
 
         # println("Level: $(level)")
         write(io, "# Level $(level)\n")
@@ -1660,7 +1839,7 @@ function make_input_struct(exporter::JuliaExporter, statements::AbstractArray{Ab
 
     var_comments = [get_input_comment(exporter, statements, stmt_graph, i) for i in input_statement_nums]
 
-    struct_str = make_struct(exporter, "Inputs", var_names; var_types=var_types, ismutable=true, default_values=var_values, var_comments=var_comments)
+    struct_str = make_struct(exporter, "Inputs", var_names; var_types = var_types, ismutable = true, default_values = var_values, var_comments = var_comments)
 
     struct_str, var_names
 end
@@ -1716,7 +1895,7 @@ function make_input_table_struct(exporter::JuliaExporter, wb::ExcelWorkbook, sta
     struct_names = getname.(tables)
     # var_types = repeat(["Matrix"], length(tables))
     var_types = repeat(["DataFrame"], length(tables))
-    struct_def = make_struct(exporter, "Tables", struct_names; var_types=var_types)
+    struct_def = make_struct(exporter, "Tables", struct_names; var_types = var_types)
     push!(lines, struct_def)
 
     input_statements = get_input_statements(statements)
@@ -1742,7 +1921,7 @@ function make_input_table_struct(exporter::JuliaExporter, wb::ExcelWorkbook, sta
         end
         group = grouped_by_set_table[table]
 
-        sort!(group, by=s -> get_set_cells(s)[1])
+        sort!(group, by = s -> get_set_cells(s)[1])
 
         get_row_num = s -> rownum(s.assigned_vars[1])
         get_col_num = s -> colnum(s.assigned_vars[1])
@@ -1818,10 +1997,10 @@ function write_file(exporter::JuliaExporter, file_name::AbstractString, wb::Exce
         output_file,
         """
         function if_multiple(dividend, divisor, value)
-            xl_compare(xl_mod(dividend, divisor), 0) ? value : 0.0
+        xl_compare(xl_mod(dividend, divisor), 0) ? value : 0.0
         end
 
-        """
+        """,
     )
     for func_stmt in filter(s -> s isa FunctionStatement, statements)
         write(output_file, get_function_string(exporter, wb, func_stmt), "\n")
@@ -1992,11 +2171,11 @@ function get_statement_stats(statements::AbstractArray{AbstractStatement})
 end
 
 function get_statement_parents_idx(stmt_graph, stmt_idx::Int)
-    findall(bfs_parents(stmt_graph, stmt_idx, dir=:out) .> 0)
+    findall(bfs_parents(stmt_graph, stmt_idx, dir = :out) .> 0)
 end
 
 function get_statement_child_idx(stmt_graph, stmt_idx::Int)
-    findall(bfs_parents(stmt_graph, stmt_idx, dir=:in) .> 0)
+    findall(bfs_parents(stmt_graph, stmt_idx, dir = :in) .> 0)
 end
 
 function statement_set_string(stmt_idx)
@@ -2069,7 +2248,7 @@ function get_func_inputs(input_statements)
     required_resources
 end
 
-function look_for_functions(statements; min_intermediates=3, max_inputs=30)
+function look_for_functions(statements; min_intermediates = 3, max_inputs = 30)
     new_statements = copy(statements)
 
     stmt_graph = make_statement_graph(statements)
@@ -2083,7 +2262,7 @@ function look_for_functions(statements; min_intermediates=3, max_inputs=30)
     captured_stmts = Set{Int64}()
 
     # for level in 1:max_level - 1
-    for level in reverse(1:max_level-1)
+    for level in reverse(1:(max_level-1))
         level_stmts = grouped_by_level[level]
         # println("Level: $level")
 
@@ -2136,13 +2315,13 @@ function look_for_functions(statements; min_intermediates=3, max_inputs=30)
     new_statements
 end
 
-function add_functions(statements; min_intermediates=3, max_inputs=30)
+function add_functions(statements; min_intermediates = 3, max_inputs = 30)
     start_len = length(statements)
 
-    new_statements = look_for_functions(statements; min_intermediates=min_intermediates, max_inputs=max_inputs)
+    new_statements = look_for_functions(statements; min_intermediates = min_intermediates, max_inputs = max_inputs)
     while (start_len != length(new_statements))
         start_len = length(new_statements)
-        new_statements = look_for_functions(new_statements; min_intermediates=min_intermediates, max_inputs=max_inputs)
+        new_statements = look_for_functions(new_statements; min_intermediates = min_intermediates, max_inputs = max_inputs)
     end
     new_statements
 end
