@@ -673,9 +673,9 @@ function parse_binops(tokens, min_bp=0)
     lhs
 end
 
-function binop_formula_inner(parser::Parser)
-    valid_symbols = ["+", "-", "*", "/", "%", "^", "&", "=", "<", "<=", ">", ">=", "<>", ":"]
+const valid_symbols = String["+", "-", "*", "/", "%", "^", "&", "=", "<", "<=", ">", ">=", "<>", ":"]
 
+function binop_formula_inner(parser::Parser)
     parts = Any[]
     t = accept_other_any!(parser, valid_symbols)
     if !isnothing(t)
@@ -725,11 +725,11 @@ function function_call(parser::Parser)
     fn_name = val(t)[begin:end-1]
     # @show fn_name
 
-    args = []
+    args = Any[fn_name]
     right_paren = accept_other!(parser, ")")
     if !isnothing(right_paren)
         # @info "Found right parent"
-        return ExcelExpr(:call, fn_name, args...)
+        return ExcelExpr(:call, args)
     end
 
     while true
@@ -766,7 +766,7 @@ function function_call(parser::Parser)
         right_paren = accept_other!(parser, ")")
         if !isnothing(right_paren)
             # @info "Found right parent"
-            return ExcelExpr(:call, fn_name, args...)
+            return ExcelExpr(:call, args)
         end
         # while !isnothing(accept_other!(parser, ","))
         #     # @info "Pusing missing"
