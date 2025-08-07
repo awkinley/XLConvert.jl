@@ -61,7 +61,12 @@
 # assumptions[1:5, 2:5]
 
 function get_all_cells(sheet)
-    XLSX.getcellrange(sheet, XLSX.get_dimension(sheet))
+    cells = Vector{XLSX.Cell}() 
+    for row in XLSX.eachrow(sheet)
+        append!(cells, values(row.rowcells))
+    end
+    # XLSX.getcellrange(sheet, XLSX.get_dimension(sheet))
+    cells
 end
 
 # all_cells = get_all_cells(assumptions)

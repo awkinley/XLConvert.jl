@@ -388,7 +388,7 @@ end
 function accept_other!(parser::Parser, tok_str::AbstractString)
     t = accept!(parser, OTHER)
 
-    isnothing(t) && return t
+    isnothing(t) && return nothing
 
     if val(t) == tok_str
         t
@@ -401,9 +401,9 @@ end
 
 function cellname(parser::Parser)
     t = accept!(parser, CELL)
-    isnothing(t) && return t
+    isnothing(t) && return nothing
 
-    ExcelExpr(:cell_ref, val(t))
+    ExcelExpr(:cell_ref, Any[val(t)])
 end
 
 # @test cellname(Parser("A10")) == ExcelExpr(:cell_ref, "A10")
@@ -425,14 +425,14 @@ end
 
 function vertical_range(parser::Parser)
     t = accept!(parser, VERTICAL_RANGE)
-    isnothing(t) && return t
+    isnothing(t) && return nothing
 
     ExcelExpr(:cols, val(t))
 end
 
 function error_ref(parser::Parser)
     t = accept!(parser, ERROR_REF)
-    isnothing(t) && return t
+    isnothing(t) && return nothing
 
     ExcelExpr(:error_ref, val(t))
 end
@@ -452,14 +452,14 @@ end
 
 function xl_float(parser::Parser)
     t = accept!(parser, NUMBER)
-    isnothing(t) && return t
+    isnothing(t) && return nothing
 
     parse(Float64, val(t))
 end
 
 function xl_bool(parser::Parser)
     t = accept!(parser, BOOLEAN)
-    isnothing(t) && return t
+    isnothing(t) && return nothing
 
     if val(t) == "TRUE"
         true
@@ -472,14 +472,14 @@ end
 
 function xl_string(parser::Parser)
     t = accept!(parser, STRING_LITERAL)
-    isnothing(t) && return t
+    isnothing(t) && return nothing
 
     val(t)[2:end-1]
 end
 
 function xl_error(parser::Parser)
     t = accept!(parser, ERROR)
-    isnothing(t) && return t
+    isnothing(t) && return nothing
 
     val(t)
 end
@@ -499,7 +499,7 @@ end
 
 function paren(parser::Parser)
     t = accept_other!(parser, "(")
-    isnothing(t) && return t
+    isnothing(t) && return nothing
 
     inner = binop_formula(parser)
     if isnothing(inner)
@@ -548,9 +548,9 @@ function prefixed_ref(parser::Parser)
     end
 
     if isempty(rest)
-        ExcelExpr(:sheet_ref, sheet, first)
+        ExcelExpr(:sheet_ref, Any[sheet, first])
     else
-        ExcelExpr(:sheet_ref, sheet, ExcelExpr(:range, first, rest...))
+        ExcelExpr(:sheet_ref, Any[sheet, ExcelExpr(:range, first, rest...)])
     end
 end
 
@@ -572,7 +572,7 @@ end
 
 function accept_other_any!(parser::Parser, tok_strs::Vector{String})
     t = accept!(parser, OTHER)
-    isnothing(t) && return t
+    isnothing(t) && return nothing
 
     if val(t) in tok_strs
         t
@@ -638,7 +638,7 @@ function opsymbol(op::AbstractString)::Symbol
     end
 end
 
-function parse_binops(tokens, min_bp=0)
+function parse_binops(tokens::Vector{Any}, min_bp::Int)
     # @show tokens
     lhs = popat!(tokens, 1)
     if isprefixop(lhs)
@@ -668,10 +668,11 @@ function parse_binops(tokens, min_bp=0)
         popfirst!(tokens)
 
         rhs = parse_binops(tokens, r_bp)
-        lhs = ExcelExpr(opsymbol(op), lhs, rhs)
+        lhs = ExcelExpr(opsymbol(op), Any[lhs, rhs])
     end
     lhs
 end
+parse_binops(tokens::Vector{Any}) = parse_binops(tokens, 0)
 
 const valid_symbols = String["+", "-", "*", "/", "%", "^", "&", "=", "<", "<=", ">", ">=", "<>", ":"]
 
@@ -720,7 +721,7 @@ end
 
 function function_call(parser::Parser)
     t = accept!(parser, EXCEL_FUNCTION)
-    isnothing(t) && return t
+    isnothing(t) && return nothing
 
     fn_name = val(t)[begin:end-1]
     # @show fn_name
