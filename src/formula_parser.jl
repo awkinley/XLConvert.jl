@@ -8,6 +8,8 @@ using Automa
     EXCEL_FUNCTION
     UNQUOTED_SHEET
     QUOTED_SHEET
+    FILE
+    QUOTED_FILE_SHEET
     NAMED_RANGE_PREFIXED
     CELL
     ERROR_REF
@@ -39,7 +41,7 @@ kind(token::Token) = token.kind
 function Token(kind::TokenKind, val::String)
     Token(kind, @view val[begin:end])
 end
-function Token(kind::TokenKind, val::T) where {T<:AbstractChar}
+function Token(kind::TokenKind, val::T) where {T <: AbstractChar}
     Token(kind, string(val))
 end
 
@@ -57,7 +59,7 @@ function Lexer(str::AbstractString)
 end
 
 const single_char_toks::Vector{Char} = ['+', '-', '*', '/', '^', '(', ')', ',', '%', '&', ':', '=']
-function match_other_token(str::T) where {T<:AbstractString}
+function match_other_token(str::T) where {T <: AbstractString}
 
     for c in single_char_toks
         if str[1] == c
@@ -103,6 +105,8 @@ function define_tokenizer()
         EXCEL_FUNCTION => re"(_xlfn\.)?[A-Z][A-Z0-9\.]*\(",
         UNQUOTED_SHEET => re"[^'*\[\]\\:/\?\(\);{}#\"=<>&\+\-\*^%, ]+!",
         QUOTED_SHEET => re"'[^'*\[\]\\:/\?]+'!",
+        FILE => re"\[[0-9+]\]",
+        QUOTED_FILE_SHEET => re"'\[[0-9+]\][^'*\[\]\\:/\?]+'!",
         CELL => re"[$]?[A-Z]+[$]?[0-9]+",
         ERROR_REF => re"#REF!",
         ERROR => re"#NULL!" | re"#DIV/0!" | re"#VALUE!" | re"#NAME?" | re"#NUM!" | re"#N/A",
@@ -187,12 +191,12 @@ function tokenize_test(lexer)
             println("Error occurred at index $(start_idx) with length $(tok_length)")
             if start_idx > 20
                 end_idx = min(length(current_str), start_idx + tok_length + 20)
-                println(current_str[start_idx - 20:end_idx])
-                println(" "^20 * "^"*tok_length)
+                println(current_str[(start_idx-20):end_idx])
+                println(" "^20 * "^" * tok_length)
             else
                 end_idx = min(length(current_str), start_idx + tok_length + 20)
                 println(current_str[begin:end_idx])
-                println(" "^start_idx * "^"*tok_length)
+                println(" "^start_idx * "^" * tok_length)
             end
             throw("Error during tokenization")
         end
@@ -245,7 +249,7 @@ function tokenize_test(lexer)
     tokens
 end
 
-function tokenize(lexer::Lexer; dbg=false)
+function tokenize(lexer::Lexer; dbg = false)
 
 
     # token_kinds = [
@@ -286,8 +290,8 @@ function tokenize(lexer::Lexer; dbg=false)
             println("Error occurred at index $(start_idx) with length $(tok_length)")
             if start_idx > 20
                 end_idx = min(length(current_str), start_idx + tok_length + 20)
-                println(current_str[start_idx - 20:end_idx])
-                println(" "^20 * "^"*tok_length)
+                println(current_str[(start_idx-20):end_idx])
+                println(" "^20 * "^" * tok_length)
             else
                 end_idx = min(length(current_str), start_idx + tok_length + 20)
                 println(current_str[begin:end_idx])
@@ -345,7 +349,7 @@ function tokenize(lexer::Lexer; dbg=false)
     tokens
 end
 
-tokenize(str::AbstractString; dbg=false) = tokenize(Lexer(str), dbg=dbg)
+tokenize(str::AbstractString; dbg = false) = tokenize(Lexer(str), dbg = dbg)
 
 
 mutable struct Parser
@@ -474,7 +478,7 @@ function xl_string(parser::Parser)
     t = accept!(parser, STRING_LITERAL)
     isnothing(t) && return nothing
 
-    val(t)[2:end-1]
+    val(t)[2:(end-1)]
 end
 
 function xl_error(parser::Parser)
@@ -521,6 +525,11 @@ function sheet_prefix(parser::Parser)
     end
 
     t = accept!(parser, QUOTED_SHEET)
+    if !isnothing(t)
+        return strip(val(t), ['\'', '!'])
+    end
+
+    t = accept!(parser, QUOTED_FILE_SHEET)
     if !isnothing(t)
         return strip(val(t), ['\'', '!'])
     end
@@ -723,7 +732,7 @@ function function_call(parser::Parser)
     t = accept!(parser, EXCEL_FUNCTION)
     isnothing(t) && return nothing
 
-    fn_name = val(t)[begin:end-1]
+    fn_name = val(t)[begin:(end-1)]
     # @show fn_name
 
     args = Any[fn_name]
