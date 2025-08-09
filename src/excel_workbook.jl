@@ -89,6 +89,30 @@ function lower_sheet_names!(expr::ExcelExpr, current_sheet::AbstractString)
     end
 end
 
+function convert_cell(sheet, sheet_name, cell::XLSX.Cell)
+    if has_formula(cell)
+        @assert !(cell.formula isa XLSX.FormulaReference)
+        expr = toexpr(cell.formula.formula)
+        lower_sheet_names!(expr, sheet_name)
+        FormulaCell(cell, expr)
+    else
+        ValueCell(cell, XLSX.getdata(sheet, cell))
+    end
+end
+
+function offset_formula_cell(new_cell::XLSX.Cell, formula_cell::FormulaCell)
+    cell_ref = formula_cell.cell.ref
+    start_row = cell_ref.row_number
+    start_col = cell_ref.column_number
+
+    end_col, end_row = parse_cell(new_cell.ref.name)
+    delta_x = end_col - start_col
+    delta_y = end_row - start_row
+
+    expression = offset(formula_cell.expr, delta_y, delta_x)
+    FormulaCell(new_cell, expression)
+end
+
 function get_cell_dict(xl)
     cell_dict = Dict{CellDependency, CellTypes}()
 
@@ -97,65 +121,39 @@ function get_cell_dict(xl)
         all_cells = filter(!isempty, get_all_cells(sheet))
 
         ref_cells_dict = Dict{Int64, CellDependency}()
+        formula_refs_to_handle = Vector{XLSX.Cell}()
 
-        # Do referenced cell first, so that we can look them up later
-        for ref_formula_cell in filter(is_ref_formula, all_cells)
-            cell_dep = CellDependency(sheet_name, ref_formula_cell.ref.name)
+        for row in XLSX.eachrow(sheet)
+            for cell in values(row.rowcells)
+                cell_dep = CellDependency(sheet_name, cell.ref.name)
 
-            # try
-            # expression = toexpr(parse_formula(ref_formula_cell.formula.formula))
-            # expression = FormulaParser.toexpr(ref_formula_cell.formula.formula)
-            expr = toexpr(ref_formula_cell.formula.formula)
-            # expr = lower_sheet_names(expression, sheet_name) |> convert_to_flat_expr
-            lower_sheet_names!(expr, sheet_name)
-            cell_dict[cell_dep] = FormulaCell(ref_formula_cell, expr)
-            # cell_dict[cell_dep] = FormulaCell(ref_formula_cell, lower_sheet_names(expression, sheet_name))
-            # cell_dict[cell_dep] = FormulaCell(ref_formula_cell, expression)
-
-            ref_cells_dict[ref_formula_cell.formula.id] = cell_dep
-
-            # catch e
-            #     @show cell_dep
-            #     @show ref_formula_cell.formula.formula
-            # end
-        end
-
-        for cell in filter(!is_ref_formula, all_cells)
-            cell_dep = CellDependency(sheet_name, cell.ref.name)
-            if has_formula(cell)
                 if cell.formula isa XLSX.FormulaReference
                     formula = cell.formula
-                    base_formula_ref = ref_cells_dict[formula.id]
-                    base_formula_cell = cell_dict[base_formula_ref].cell
-
-                    start_row = base_formula_cell.ref.row_number
-                    start_col = base_formula_cell.ref.column_number
-                    end_row = cell.ref.row_number
-                    end_col = cell.ref.column_number
-                    delta_x = end_col - start_col
-                    delta_y = end_row - start_row
-
-                    expression = offset(cell_dict[base_formula_ref].expr, delta_y, delta_x)
-                    cell_dict[cell_dep] = FormulaCell(cell, expression)
+                    if formula.id in keys(ref_cells_dict)
+                        formula_cell = cell_dict[ref_cells_dict[formula.id]]
+                        cell_dict[cell_dep] = offset_formula_cell(cell, formula_cell)
+                    else
+                        # This would happen if a formula is referenced before
+                        # it's defined, I don't know if this actually happens in
+                        # practice. I haven't seen it happen, but haven't looked too hard.
+                        push!(formula_refs_to_handle, cell)
+                    end
                 else
-                    try
-                        # expression = FormulaParser.toexpr(cell.formula.formula)
-                        expr = toexpr(cell.formula.formula)
-                        # expr = lower_sheet_names(expression, sheet_name) |> convert_to_flat_expr
-                        lower_sheet_names!(expr, sheet_name)
-                        # expression = toexpr(parse_formula(cell.formula.formula))
-                        cell_dict[cell_dep] = FormulaCell(cell, expr)
-                        # cell_dict[cell_dep] = FormulaCell(cell, lower_sheet_names(expression, sheet_name))
-                    catch e
-                        # throw(e)
-                        @show e
-                        @show cell_dep
-                        @show cell.formula.formula
+                    cell_dict[cell_dep] = convert_cell(sheet, sheet_name, cell)
+
+                    if cell.formula isa XLSX.ReferencedFormula
+                        ref_cells_dict[cell.formula.id] = cell_dep
                     end
                 end
-            else
-                cell_dict[cell_dep] = ValueCell(cell, XLSX.getdata(sheet, cell))
+
             end
+        end
+
+        # @show length(formula_refs_to_handle)
+        for cell in formula_refs_to_handle
+            cell_dep = CellDependency(sheet_name, cell.ref.name)
+            formula_cell = cell_dict[ref_cells_dict[cell.formula.id]]
+            cell_dict[cell_dep] = offset_formula_cell(cell, formula_cell)
         end
     end
 

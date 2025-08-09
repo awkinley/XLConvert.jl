@@ -478,7 +478,7 @@ function xl_string(parser::Parser)
     t = accept!(parser, STRING_LITERAL)
     isnothing(t) && return nothing
 
-    val(t)[2:(end-1)]
+    @view val(t)[2:(end-1)]
 end
 
 function xl_error(parser::Parser)
@@ -546,7 +546,16 @@ function prefixed_ref(parser::Parser)
         throw("Missing formula after sheet prefix!")
     end
 
-    rest = []
+    if isnothing(accept_other!(parser, ":"))
+        return ExcelExpr(:sheet_ref, Any[sheet, first])
+    end
+
+    e = formula(parser)
+    if isnothing(e)
+        throw("Missing formula after :")
+    end
+
+    rest = Any[first, e]
     while !isnothing(accept_other!(parser, ":"))
         e = formula(parser)
         if isnothing(e)
@@ -556,11 +565,12 @@ function prefixed_ref(parser::Parser)
         push!(rest, e)
     end
 
-    if isempty(rest)
-        ExcelExpr(:sheet_ref, Any[sheet, first])
-    else
-        ExcelExpr(:sheet_ref, Any[sheet, ExcelExpr(:range, first, rest...)])
-    end
+    ExcelExpr(:sheet_ref, Any[sheet, ExcelExpr(:range, rest)])
+    # if isempty(rest)
+    #     ExcelExpr(:sheet_ref, Any[sheet, first])
+    # else
+    #     ExcelExpr(:sheet_ref, Any[sheet, ExcelExpr(:range, rest)])
+    # end
 end
 
 function formula(parser::Parser)
@@ -630,7 +640,7 @@ function infix_binding_power(op)
         "<" => (0, 0)
         ">" => (0, 0)
         "&" => (1, 2)
-        _ => throw("Bad infix op %op")
+        _ => throw("Bad infix op $op")
     end
 end
 
@@ -685,6 +695,89 @@ parse_binops(tokens::Vector{Any}) = parse_binops(tokens, 0)
 
 const valid_symbols = String["+", "-", "*", "/", "%", "^", "&", "=", "<", "<=", ">", ">=", "<>", ":"]
 
+mutable struct BinOpIter
+    parser::Parser
+    peek_cache::Union{Nothing, Any}
+end
+
+
+function peek(iter::BinOpIter)
+    if !isnothing(iter.peek_cache)
+        val = iter.peek_cache
+        return val
+    end
+
+    next_val = next!(iter)
+    iter.peek_cache = next_val
+
+    next_val
+end
+
+function next!(iter::BinOpIter)
+    if !isnothing(iter.peek_cache)
+        peek_val = iter.peek_cache
+        iter.peek_cache = nothing
+        return peek_val
+    end
+
+    t = accept_other_any!(iter.parser, valid_symbols)
+    if !isnothing(t)
+        return val(t)
+    end
+
+    e = formula(iter.parser)
+    # @show parser e
+    isnothing(e) && return nothing
+
+    return e
+end
+
+function parse_binops_iter(iter::BinOpIter, min_bp::Int)
+    # @show tokens
+    # lhs = popat!(tokens, 1)
+    lhs = next!(iter)
+    if isnothing(lhs)
+        return nothing
+    end
+
+    if isprefixop(lhs)
+        _, r_bp = prefix_binding_power(lhs)
+        rhs = parse_binops_iter(iter, r_bp)
+        lhs = ExcelExpr(opsymbol(lhs), rhs)
+    end
+
+    while true
+        op = peek(iter)
+        if isnothing(op)
+            break
+        end
+
+        if ispostfixop(op)
+            l_bp, _ = postfix_binding_power(op)
+            if l_bp < min_bp
+                break
+            end
+
+            next!(iter)
+
+            lhs = ExcelExpr(opsymbol(op), lhs)
+            continue
+        end
+
+        l_bp, r_bp = infix_binding_power(op)
+        if l_bp < min_bp
+            break
+        end
+        next!(iter)
+
+        rhs = parse_binops_iter(iter, r_bp)
+        lhs = ExcelExpr(opsymbol(op), Any[lhs, rhs])
+    end
+    lhs
+end
+parse_binops_iter(iter::BinOpIter) = parse_binops_iter(iter, 0)
+
+
 function binop_formula_inner(parser::Parser)
     parts = Any[]
     t = accept_other_any!(parser, valid_symbols)
@@ -721,10 +814,12 @@ function binop_formula_inner(parser::Parser)
 end
 
 function binop_formula(parser::Parser)
-    parts = binop_formula_inner(parser)
-    isnothing(parts) && return nothing
+    iter = BinOpIter(parser, nothing)
+    parse_binops_iter(iter)
+    # parts = binop_formula_inner(parser)
+    # isnothing(parts) && return nothing
 
-    parse_binops(parts)
+    # parse_binops(parts)
 end
 
 

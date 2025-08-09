@@ -61,7 +61,7 @@
 # assumptions[1:5, 2:5]
 
 function get_all_cells(sheet)
-    cells = Vector{XLSX.Cell}() 
+    cells = Vector{XLSX.Cell}()
     for row in XLSX.eachrow(sheet)
         append!(cells, values(row.rowcells))
     end
@@ -363,37 +363,37 @@ function get_expr_dependencies(expr::FlatExpr, key_values::Dict)
     deps
 end
 
-function get_expr_dependencies(expr::ExcelExpr, key_values::Dict)
+
+function get_expr_dependencies(expr::ExcelExpr, key_values::Dict)::Vector{CellDependency}
     @match expr begin
         ExcelExpr(:cell_ref, [cell, sheet]) => [CellDependency(sheet, cell)]
         # ExcelExpr(:sheet_ref, (sheet_name, ref)) => get_expr_dependencies(ref, key_values)
-        ExcelExpr(:named_range, [name]) => get_expr_dependencies(key_values[name], key_values)
+        ExcelExpr(:named_range, [name]) => begin
+            value = key_values[name]
+            if value isa ExcelExpr
+                get_expr_dependencies(value, key_values)
+            else
+                Vector{CellDependency}()
+            end
+        end
         ExcelExpr(:range, [ExcelExpr(:cell_ref, [lhs, sheet]), ExcelExpr(:cell_ref, [rhs, sheet])]) => begin
             start_col, start_row = parse_cell(lhs)
             end_col, end_row = parse_cell(rhs)
 
             @assert end_row >= start_row
             @assert end_col >= start_col
-
-            output = []
-            for col ∈ start_col:end_col
-                row_values = (r -> CellDependency(sheet, index_to_cellname(col, r))).(start_row:end_row)
-                push!(output, row_values)
-            end
-            flattened = reduce(vcat, output)
-            flattened
+            [CellDependency(sheet, index_to_cellname(c, r)) for c ∈ start_col:end_col for r ∈ start_row:end_row]
         end
         # TODO: Handle?
         ExcelExpr(:range, [lhs, rhs]) => throw("Don't know how to get dependencies for $(expr)")
         ExcelExpr(op, args) => begin
             res = Vector{CellDependency}()
             for a in args
-                append!(res, get_expr_dependencies(a, key_values))
+                if a isa ExcelExpr
+                    append!(res, get_expr_dependencies(a, key_values))
+                end
             end
             res
-            # mapped = map(a -> get_expr_dependencies(a, key_values), args)
-            # reduce(vcat, mapped)
-            # flatten_nested_vecs(mapped)
         end
     end
 end

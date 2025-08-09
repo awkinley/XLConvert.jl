@@ -14,7 +14,7 @@ include("./functions/comparison.jl")
 flatten(arr::AbstractArray) = reduce(vcat, arr)
 flatten(arr) = arr
 
-function offset_cell_str(cell::T, rows::Int, cols::Int) where {T<:AbstractString}
+function offset_cell_str(cell::T, rows::Int, cols::Int) where {T <: AbstractString}
     first_let = findfirst(c -> 'A' <= c <= 'Z', cell)
     first_num = findfirst(isdigit, cell)
 
