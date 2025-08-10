@@ -8,7 +8,7 @@ using Match
 using Random
 using Dates
 using DataFrames
-import EzXML
+using EzXML: EzXML
 
 export CellDependency,
     MissingCell,

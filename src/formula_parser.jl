@@ -35,9 +35,6 @@ val(token::Token) = token.val
 kind(token::Token) = token.kind
 
 
-# function Token(kind::TokenKind, val::SubString{String})
-#     Token(kind, val)
-# end
 function Token(kind::TokenKind, val::String)
     Token(kind, @view val[begin:end])
 end
@@ -59,45 +56,6 @@ function Lexer(str::AbstractString)
 end
 
 const single_char_toks::Vector{Char} = ['+', '-', '*', '/', '^', '(', ')', ',', '%', '&', ':', '=']
-function match_other_token(str::T) where {T <: AbstractString}
-
-    for c in single_char_toks
-        if str[1] == c
-            return Token(OTHER, @view str[1:1])
-        end
-    end
-
-    first_char = str[1]
-    if first_char == '<'
-        second_char = if length(str) > 1
-            str[2]
-        else
-            nothing
-        end
-
-        if second_char == '='
-            Token(OTHER, @view str[1:2])
-        elseif second_char == '>'
-            Token(OTHER, @view str[1:2])
-        else
-            Token(OTHER, @view str[1:1])
-        end
-    elseif first_char == '>'
-        second_char = if length(str) > 1
-            str[2]
-        else
-            nothing
-        end
-        if second_char == '='
-            Token(OTHER, @view str[1:2])
-        else
-            Token(OTHER, @view str[1:1])
-        end
-    else
-        nothing
-    end
-
-end
 
 function define_tokenizer()
 
@@ -140,135 +98,8 @@ function define_tokenizer()
 end
 
 define_tokenizer()
-const rg_excel_function = r"\G(_xlfn\.)?[A-Z][A-Z0-9\.]*\("
-const rg_unquoted_sheet = r"\G'[^\'\*\[\]\\:/\?]+'!"
-const rg_quoted_sheet = r"\G[^\'\*\[\]\\:/\?\\(\);\{\}#\"=<>&\+\-\*^%, ]+!"
-const rg_named_range_prefixed = r"\G(TRUE|FALSE|[A-Z]+[0-9]++)[A-Za-z0-9\\_]+"
-const rg_cell = r"\G[\$]?[A-Z]+[\$]?\d+"
-const rg_error_ref = r"#REF!"
-const rg_boolean = r"\G(TRUE|FALSE)"
-const rg_horizontal_range = r"\G[\$]?\d+:[\$]?\d+"
-const rg_vertical_range = r"\G\$?[A-Z]+:\$?[A-Z]+"
-const rg_number = r"\G\d+[\.]?\d*(e\d+)?"
-const rg_string_literal = r"\G\"([^\"]|(?:\"\"))*\""
-const rg_space = r"\G\s+"
-const rg_named_range = r"\G[A-Za-z_\\][A-Za-z0-9\\_]*"
-
-function tokenize_test(lexer)
-
-    # token_kinds = [
-    #     (rg_excel_function, EXCEL_FUNCTION),
-    #     (rg_unquoted_sheet, UNQUOTED_SHEET),
-    #     (rg_quoted_sheet, QUOTED_SHEET),
-    #     (rg_named_range_prefixed, NAMED_RANGE_PREFIXED),
-    #     (rg_cell, CELL),
-    #     (rg_error_ref, ERROR_REF),
-    #     (rg_boolean, BOOLEAN),
-    #     (rg_horizontal_range, HORIZONTAL_RANGE),
-    #     (rg_vertical_range, VERTICAL_RANGE),
-    #     (rg_number, NUMBER),
-    #     (rg_string_literal, STRING_LITERAL),
-    #     # (space, SPACE),
-    #     (rg_named_range, NAMED_RANGE),
-    # ]
-
-    tokens = Vector{Token}()
-
-    idx = lexer.idx
-    max_idx = length(lexer.base_string)
-    # Remove any leading whitespace, which sometimes shows up for some reason
-    while idx <= max_idx && Base.isspace(lexer.base_string[idx])
-        idx += 1
-    end
-
-    current_str = lexer.base_string[idx:end]
-
-    iter = Automa.tokenize(TokenKind, current_str)
-    for (start_idx, tok_length, kind) in iter
-        if kind == TOK_ERR
-            println("Tokenizer encountered an error")
-            println("String = $current_str")
-            println("Error occurred at index $(start_idx) with length $(tok_length)")
-            if start_idx > 20
-                end_idx = min(length(current_str), start_idx + tok_length + 20)
-                println(current_str[(start_idx-20):end_idx])
-                println(" "^20 * "^" * tok_length)
-            else
-                end_idx = min(length(current_str), start_idx + tok_length + 20)
-                println(current_str[begin:end_idx])
-                println(" "^start_idx * "^" * tok_length)
-            end
-            throw("Error during tokenization")
-        end
-        if kind != SPACE
-            push!(tokens, Token(kind, SubString(current_str, start_idx, start_idx + tok_length - 1)))
-        end
-    end
-
-
-    # while !isempty(current_str)
-    #     did_match = false
-    #     other = match_other_token(current_str)
-    #     if !isnothing(other)
-    #         # idx += length(val(other))
-    #         push!(tokens, other)
-    #         did_match = true
-    #     else
-    #         iter = @show Automa.tokenize(TokenKind, current_str)
-    #         m = collect(iter)
-    #         @show m
-    #         @show current_str
-    #         did_match = true
-    #         return tokens
-    #         # for (rgx, kind) in token_kinds
-    #         #     m = match(rgx, current_str)
-    #         #     if !isnothing(m)
-    #         #         t = Token(kind, m.match)
-    #         #         push!(tokens, t)
-    #         #         idx += length(m.match)
-    #         #         did_match = true
-    #         #         break
-    #         #     end
-    #         # end
-    #     end
-
-    #     # if !did_match
-    #     #     @show lexer.base_string
-    #     #     @show current_str
-    #     #     throw("Failed to match $(repr(current_str)) against any token")
-    #     # end
-
-    #     while idx <= max_idx && Base.isspace(lexer.base_string[idx])
-    #         idx += 1
-    #     end
-    #     current_str = lexer.base_string[idx:end]
-
-    # end
-
-
-    tokens
-end
 
 function tokenize(lexer::Lexer; dbg = false)
-
-
-    # token_kinds = [
-    #     (rg_excel_function, EXCEL_FUNCTION),
-    #     (rg_unquoted_sheet, UNQUOTED_SHEET),
-    #     (rg_quoted_sheet, QUOTED_SHEET),
-    #     (rg_named_range_prefixed, NAMED_RANGE_PREFIXED),
-    #     (rg_cell, CELL),
-    #     (rg_error_ref, ERROR_REF),
-    #     (rg_boolean, BOOLEAN),
-    #     (rg_horizontal_range, HORIZONTAL_RANGE),
-    #     (rg_vertical_range, VERTICAL_RANGE),
-    #     (rg_number, NUMBER),
-    #     (rg_string_literal, STRING_LITERAL),
-    #     # (space, SPACE),
-    #     (rg_named_range, NAMED_RANGE),
-    # ]
-
-
     idx = lexer.idx
     max_idx = length(lexer.base_string)
     # Remove any leading whitespace, which sometimes shows up for some reason
@@ -304,47 +135,6 @@ function tokenize(lexer::Lexer; dbg = false)
             push!(tokens, Token(kind, SubString(current_str, start_idx, start_idx + tok_length - 1)))
         end
     end
-
-
-    # while !isempty(current_str)
-    #     dbg && @show current_str
-    #     did_match = false
-    #     other = match_other_token(current_str)
-    #     if !isnothing(other)
-    #         dbg && @show other
-    #         idx += length(val(other))
-    #         push!(tokens, other)
-    #         did_match = true
-    #     else
-    #         for (rgx, kind) in token_kinds
-    #             m = match(rgx, current_str)
-    #             if !isnothing(m)
-    #                 dbg && @show m
-    #                 dbg && @show length(m.match)
-    #                 t = Token(kind, m.match)
-    #                 dbg && @show t
-    #                 push!(tokens, t)
-    #                 idx += length(m.match)
-    #                 did_match = true
-    #                 break
-    #             end
-    #         end
-    #     end
-    #     dbg && @show idx
-
-    #     if !did_match
-    #         # @show lexer.base_string
-    #         # @show current_str
-    #         throw("Failed to match $(repr(current_str)) against any token")
-    #     end
-
-    #     while idx <= max_idx && Base.isspace(lexer.base_string[idx])
-    #         idx += 1
-    #     end
-    #     current_str = @view lexer.base_string[idx:end]
-
-    # end
-
 
     tokens
 end
@@ -407,10 +197,8 @@ function cellname(parser::Parser)
     t = accept!(parser, CELL)
     isnothing(t) && return nothing
 
-    ExcelExpr(:cell_ref, Any[val(t)])
+    ExcelExpr(:cell_ref, val(t))
 end
-
-# @test cellname(Parser("A10")) == ExcelExpr(:cell_ref, "A10")
 
 function named_range(parser::Parser)
     t = accept!(parser, NAMED_RANGE_PREFIXED)
@@ -424,8 +212,6 @@ function named_range(parser::Parser)
 
     nothing
 end
-
-# @test named_range(Parser("CO2_concentration")) == ExcelExpr(:named_range, "CO2_concentration")
 
 function vertical_range(parser::Parser)
     t = accept!(parser, VERTICAL_RANGE)
@@ -566,11 +352,6 @@ function prefixed_ref(parser::Parser)
     end
 
     ExcelExpr(:sheet_ref, Any[sheet, ExcelExpr(:range, rest)])
-    # if isempty(rest)
-    #     ExcelExpr(:sheet_ref, Any[sheet, first])
-    # else
-    #     ExcelExpr(:sheet_ref, Any[sheet, ExcelExpr(:range, rest)])
-    # end
 end
 
 function formula(parser::Parser)
@@ -657,42 +438,6 @@ function opsymbol(op::AbstractString)::Symbol
     end
 end
 
-function parse_binops(tokens::Vector{Any}, min_bp::Int)
-    # @show tokens
-    lhs = popat!(tokens, 1)
-    if isprefixop(lhs)
-        _, r_bp = prefix_binding_power(lhs)
-        rhs = parse_binops(tokens, r_bp)
-        lhs = ExcelExpr(opsymbol(lhs), rhs)
-    end
-
-    while length(tokens) > 0
-        op = tokens[1]
-        if ispostfixop(op)
-            l_bp, _ = postfix_binding_power(op)
-            if l_bp < min_bp
-                break
-            end
-
-            popfirst!(tokens)
-
-            lhs = ExcelExpr(opsymbol(op), lhs)
-            continue
-        end
-
-        l_bp, r_bp = infix_binding_power(op)
-        if l_bp < min_bp
-            break
-        end
-        popfirst!(tokens)
-
-        rhs = parse_binops(tokens, r_bp)
-        lhs = ExcelExpr(opsymbol(op), Any[lhs, rhs])
-    end
-    lhs
-end
-parse_binops(tokens::Vector{Any}) = parse_binops(tokens, 0)
-
 const valid_symbols = String["+", "-", "*", "/", "%", "^", "&", "=", "<", "<=", ">", ">=", "<>", ":"]
 
 mutable struct BinOpIter
@@ -726,15 +471,12 @@ function next!(iter::BinOpIter)
     end
 
     e = formula(iter.parser)
-    # @show parser e
     isnothing(e) && return nothing
 
     return e
 end
 
 function parse_binops_iter(iter::BinOpIter, min_bp::Int)
-    # @show tokens
-    # lhs = popat!(tokens, 1)
     lhs = next!(iter)
     if isnothing(lhs)
         return nothing
@@ -778,48 +520,9 @@ end
 parse_binops_iter(iter::BinOpIter) = parse_binops_iter(iter, 0)
 
 
-function binop_formula_inner(parser::Parser)
-    parts = Any[]
-    t = accept_other_any!(parser, valid_symbols)
-    if !isnothing(t)
-        push!(parts, val(t))
-    end
-
-    # @show parser t
-    e = formula(parser)
-    # @show parser e
-    isnothing(e) && return nothing
-    push!(parts, e)
-
-
-
-    while true
-        t = accept_other_any!(parser, valid_symbols)
-        # @show parser t
-        isnothing(t) && return parts
-
-        while !isnothing(t)
-            push!(parts, val(t))
-            t = accept_other_any!(parser, valid_symbols)
-            # @show parser t
-        end
-
-        e = formula(parser)
-        # @show parser e
-        isnothing(e) && return parts
-        push!(parts, e)
-    end
-
-    parts
-end
-
 function binop_formula(parser::Parser)
     iter = BinOpIter(parser, nothing)
     parse_binops_iter(iter)
-    # parts = binop_formula_inner(parser)
-    # isnothing(parts) && return nothing
-
-    # parse_binops(parts)
 end
 
 
@@ -828,61 +531,26 @@ function function_call(parser::Parser)
     isnothing(t) && return nothing
 
     fn_name = val(t)[begin:(end-1)]
-    # @show fn_name
 
     args = Any[fn_name]
     right_paren = accept_other!(parser, ")")
     if !isnothing(right_paren)
-        # @info "Found right parent"
         return ExcelExpr(:call, args)
     end
 
     while true
-        # @show parser
-        # tok = peek(parser)
-        # e = if kind(tok) == OTHER && val(tok) == ","
-        #     missing
-        # else
-        #     e = binop_formula(parser)
-        # end
-
-        # last_arg = accept_other!(parser, ",")
-        # if isnothing(last_arg)
-        #     last_arg = binop_formula(parser)
-        # end
-
         e = binop_formula(parser)
         if isnothing(e)
             e = missing
         end
-        # if isnothing(e)
-        #     e = missing
-        #     # if !isnothing(accept_other!(parser, ","))
-        #     #     e = missing
-        #     #     decrement!(parser)
-        #     #     push!(args, e)
-        #     # # else
-        #     # #     throw("Can this happen in valid formulas?")
-        #     # end
-        # # else
-        # end
         push!(args, e)
 
         right_paren = accept_other!(parser, ")")
         if !isnothing(right_paren)
-            # @info "Found right parent"
             return ExcelExpr(:call, args)
         end
-        # while !isnothing(accept_other!(parser, ","))
-        #     # @info "Pusing missing"
-        #     push!(args, missing)
-        # end
 
-        # e = binop_formula(parser)
-        # if isnothing(e)
-        #     throw("Can this happen in valid formulas?")
-        # end
-        (accept_other!(parser, ","))
+        accept_other!(parser, ",")
     end
 
 end
