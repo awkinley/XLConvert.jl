@@ -46,7 +46,13 @@ export CellDependency,
     getdatatype,
     named_range_to_cell,
     rownum,
-    colnum
+    colnum,
+    startcol,
+    endcol,
+    startrow,
+    endrow,
+    getname
+
 
 include("excel_expr.jl")
 include("formula_parser.jl")

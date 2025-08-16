@@ -4,6 +4,7 @@ end
 using XLConvert
 using XLSX
 using Graphs
+using Match
 
 function infer_types(used_subset::XLConvert.WorkbookSubset)
     graph = used_subset.graph
@@ -108,6 +109,54 @@ end
 Base.:(==)(a::FastHashedFlatExpr, b::FastHashedFlatExpr) = a.expr == b.expr
 Base.isequal(a::FastHashedFlatExpr, b::FastHashedFlatExpr) = isequal(a.expr, b.expr)
 
+function merge_tables(a::XLConvert.ExcelTable, b::XLConvert.ExcelTable)
+    a.sheet_name != b.sheet_name && return nothing
+
+    if XLConvert.startrow(a) == XLConvert.startrow(b) && XLConvert.endrow(a) == XLConvert.endrow(b)
+        if XLConvert.endcol(a) + 1 == XLConvert.startcol(b)
+            # Merge columns
+            top_left = a.top_left
+            bottom_right = b.bottom_right
+            table_name = "$(top_left)_$(bottom_right)"
+            col_names = XLSX.encode_column_number.(XLConvert.startcol(a):XLConvert.endcol(b))
+            new_table = ExcelTable(a.sheet_name, table_name, top_left, bottom_right, "", "", col_names, missing)
+            return new_table
+        elseif XLConvert.endcol(b) + 1 == XLConvert.startcol(a)
+            # Merge columns
+            top_left = b.top_left
+            bottom_right = a.bottom_right
+            table_name = "$(top_left)_$(bottom_right)"
+            col_names = XLSX.encode_column_number.(XLConvert.startcol(b):XLConvert.endcol(a))
+            new_table = ExcelTable(a.sheet_name, table_name, top_left, bottom_right, "", "", col_names, missing)
+            return new_table
+        else
+            return nothing
+        end
+    elseif XLConvert.startcol(a) == XLConvert.startcol(b) && XLConvert.endcol(a) == XLConvert.endcol(b)
+        if XLConvert.endrow(a) + 1 == XLConvert.startrow(b)
+            # Merge rows
+            top_left = a.top_left
+            bottom_right = b.bottom_right
+            table_name = "$(top_left)_$(bottom_right)"
+            col_names = XLSX.encode_column_number.(XLConvert.startcol(a):XLConvert.endcol(b))
+            new_table = ExcelTable(a.sheet_name, table_name, top_left, bottom_right, "", "", col_names, missing)
+            return new_table
+        elseif XLConvert.endrow(b) + 1 == XLConvert.startrow(a)
+            # Merge rows
+            top_left = b.top_left
+            bottom_right = a.bottom_right
+            table_name = "$(top_left)_$(bottom_right)"
+            col_names = XLSX.encode_column_number.(XLConvert.startcol(b):XLConvert.endcol(a))
+            new_table = ExcelTable(a.sheet_name, table_name, top_left, bottom_right, "", "", col_names, missing)
+            return new_table
+        else
+            return nothing
+        end
+    end
+
+    nothing
+end
+
 function find_tables_in_sheet(sheet_name, cells)
 
     # formula_cells = filter(c -> c isa XLConvert.FormulaCell, cells)
@@ -167,53 +216,6 @@ function find_tables_in_sheet(sheet_name, cells)
         # @show length(uses_same_function[func])
     end
 
-    function merge_tables(a::XLConvert.ExcelTable, b::XLConvert.ExcelTable)
-        a.sheet_name != b.sheet_name && return nothing
-
-        if XLConvert.startrow(a) == XLConvert.startrow(b) && XLConvert.endrow(a) == XLConvert.endrow(b)
-            if XLConvert.endcol(a) + 1 == XLConvert.startcol(b)
-                # Merge columns
-                top_left = a.top_left
-                bottom_right = b.bottom_right
-                table_name = "$(top_left)_$(bottom_right)"
-                col_names = XLSX.encode_column_number.(XLConvert.startcol(a):XLConvert.endcol(b))
-                new_table = ExcelTable(a.sheet_name, table_name, top_left, bottom_right, "", "", col_names, missing)
-                return new_table
-            elseif XLConvert.endcol(b) + 1 == XLConvert.startcol(a)
-                # Merge columns
-                top_left = b.top_left
-                bottom_right = a.bottom_right
-                table_name = "$(top_left)_$(bottom_right)"
-                col_names = XLSX.encode_column_number.(XLConvert.startcol(b):XLConvert.endcol(a))
-                new_table = ExcelTable(a.sheet_name, table_name, top_left, bottom_right, "", "", col_names, missing)
-                return new_table
-            else
-                return nothing
-            end
-        elseif XLConvert.startcol(a) == XLConvert.startcol(b) && XLConvert.endcol(a) == XLConvert.endcol(b)
-            if XLConvert.endrow(a) + 1 == XLConvert.startrow(b)
-                # Merge rows
-                top_left = a.top_left
-                bottom_right = b.bottom_right
-                table_name = "$(top_left)_$(bottom_right)"
-                col_names = XLSX.encode_column_number.(XLConvert.startcol(a):XLConvert.endcol(b))
-                new_table = ExcelTable(a.sheet_name, table_name, top_left, bottom_right, "", "", col_names, missing)
-                return new_table
-            elseif XLConvert.endrow(b) + 1 == XLConvert.startrow(a)
-                # Merge rows
-                top_left = b.top_left
-                bottom_right = a.bottom_right
-                table_name = "$(top_left)_$(bottom_right)"
-                col_names = XLSX.encode_column_number.(XLConvert.startcol(b):XLConvert.endcol(a))
-                new_table = ExcelTable(a.sheet_name, table_name, top_left, bottom_right, "", "", col_names, missing)
-                return new_table
-            else
-                return nothing
-            end
-        end
-
-        nothing
-    end
 
     println("Made $(length(tables)) tables on sheet $sheet_name")
     sort!(tables, by = t -> (XLConvert.startrow(t), XLConvert.startcol(t)))
@@ -275,7 +277,139 @@ function find_tables(used_subset::XLConvert.WorkbookSubset)
 
     # for sheet_name in keys(cells_by_sheet)
     # end
+
+    find_untabled_ranges(used_subset, all_tables)
+
     all_tables
+end
+
+function get_ranges(expr::FlatExpr)
+    ranges = Vector{Tuple{String, String, String}}()
+    # handled = Set{Int}()
+    for (i, part) in enumerate(expr.parts)
+        # i in handled && continue
+
+        @match part begin
+            # ExcelExpr(:cell_ref, [cell, sheet]) => push!(deps, CellDependency(sheet, cell))
+            # ExcelExpr(:sheet_ref, (sheet_name, ref)) => get_expr_dependencies(ref, key_values)
+            # ExcelExpr(:named_range, [name]) => append!(deps, get_expr_dependencies(key_values[name], key_values))
+            ExcelExpr(:range, [FlatIdx(lhs_i), FlatIdx(rhs_i)]) => begin
+                lhs_expr = expr.parts[lhs_i]
+                rhs_expr = expr.parts[rhs_i]
+                if !((lhs_expr.head == :cell_ref) && (rhs_expr.head == :cell_ref))
+                    throw("Don't know how to get dependencies for $(expr)")
+                end
+                sheet = lhs_expr.args[2]
+                if (sheet != rhs_expr.args[2])
+                    throw("Don't know how to get dependencies for $(expr)")
+                end
+
+                lhs = lhs_expr.args[1]
+                rhs = rhs_expr.args[1]
+
+                push!(ranges, (lhs_expr.args[2], lhs, rhs))
+            end
+            _ => continue
+        end
+    end
+
+    ranges
+end
+
+function find_untabled_ranges(used_subset::XLConvert.WorkbookSubset, tables::Vector{XLConvert.ExcelTable})
+    used_cells = XLConvert.get_used_cells(used_subset)
+    wb = used_subset.wb
+
+    function handle_expr(expr::XLConvert.FlatExpr)
+        ranges = get_ranges(expr)
+        for (sheet, lhs, rhs) in ranges
+            start_col, start_row = XLConvert.parse_cell(lhs)
+            end_col, end_row = XLConvert.parse_cell(rhs)
+
+            range_cells = [CellDependency(sheet, XLConvert.index_to_cellname(col, r)) for r in start_row:end_row, col in start_col:end_col]
+            cell_table_idx = zeros(Int, size(range_cells))
+            for (table_idx, table) in enumerate(tables)
+                @. cell_table_idx[range_cells ∈ (table,)] .= table_idx
+            end
+            unique_tables = unique(cell_table_idx)
+            if length(unique_tables) != 1 || cell_table_idx[1] == 0
+                println("Found untabled range! $(lhs):$(rhs)")
+                println("Cell Table Idx:")
+                show(stdout, "text/plain", cell_table_idx)
+                println("")
+            end
+            # Range overlaps with a single table
+            if length(unique_tables) == 2 && 0 in unique_tables
+                idx_to_grow = first(setdiff(unique_tables, Set([0])))
+                table_to_grow = tables[idx_to_grow]
+
+                left = min(start_col, startcol(table_to_grow))
+                right = max(end_col, endcol(table_to_grow))
+                top = min(start_row, startrow(table_to_grow))
+                bottom = max(end_row, endrow(table_to_grow))
+
+                top_left = coord_to_cell_name(top, left)
+                bottom_right = coord_to_cell_name(bottom, right)
+
+                table_name = "$(top_left)_$(bottom_right)"
+                col_names = XLSX.encode_column_number.(left:right)
+                old_name = getname(table_to_grow)
+                tables[idx_to_grow] = ExcelTable(sheet, table_name, top_left, bottom_right, "", "", col_names, missing)
+                println("Growing $(old_name) to $(getname(tables[idx_to_grow]))")
+            end
+
+            # Range overlaps with no tables
+            if all(unique_tables .== 0) && length(range_cells) > 4
+                top_left = coord_to_cell_name(start_row, start_col)
+                bottom_right = coord_to_cell_name(end_row, end_col)
+
+                table_name = "$(top_left)_$(bottom_right)"
+                col_names = XLSX.encode_column_number.(start_col:end_col)
+                push!(tables, ExcelTable(sheet, table_name, top_left, bottom_right, "", "", col_names, missing))
+                println("Creating new table $(table_name)")
+
+            end
+        end
+    end
+
+    for cell in used_cells
+        if !(cell in keys(wb.cell_dict))
+            continue
+        end
+
+        expr = XLConvert.get_expr(wb.cell_dict[cell])
+        if !(expr isa XLConvert.FlatExpr)
+            continue
+        end
+
+        handle_expr(expr)
+
+    end
+
+    for expr in values(wb.key_values)
+        if !(expr isa XLConvert.FlatExpr)
+            continue
+        end
+
+        handle_expr(expr)
+    end
+
+end
+
+function find_tables(wb)
+    target_output = CellDependency("Results", "C26")
+    all_target_outputs = [target_output]
+
+    @time used_subset = get_workbook_subset(wb, all_target_outputs)
+
+    println("-"^40)
+    println("Finding Tables")
+    println("-"^40)
+    @time tables = find_tables(used_subset)
+    push!(tables, DefTable(wb.xf, "Depreciation", "MACRS", "C15", "H35", "C14:H14", ""))
+
+
+    tables
 end
 
 function read_wb()
@@ -347,20 +481,6 @@ function get_statements(wb::XLConvert.ExcelWorkbook2)
     statements
 end
 
-function find_tables(wb)
-    target_output = CellDependency("Results", "C26")
-    all_target_outputs = [target_output]
-
-    @time used_subset = get_workbook_subset(wb, all_target_outputs)
-
-    println("-"^40)
-    println("Finding Tables")
-    println("-"^40)
-    @time tables = find_tables(used_subset)
-    push!(tables, DefTable(wb.xf, "Depreciation", "MACRS", "C15", "H35", "C14:H14", ""))
-
-end
-
 function run(wb::XLConvert.ExcelWorkbook2)
     # file = "current-central-biomass-gasification-version-oct20.xlsm"
     # wb = parse_workbook(file)
@@ -402,6 +522,11 @@ function run(wb::XLConvert.ExcelWorkbook2)
         @time "if_toggle_transform" if_toggle_transform!(statements)
         @time "round_if_transform" round_if_transform!(statements)
         @time "table_ref_transform" table_ref_transform!(statements, tables)
+        for (k, value) in wb.key_values
+            if value isa XLConvert.FlatExpr
+                wb.key_values[k] = XLConvert.insert_table_refs(value, tables)
+            end
+        end
         table_stmts = filter(s -> s isa XLConvert.TableStatement, statements)
         @show length(table_stmts)
 
