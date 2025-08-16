@@ -1150,6 +1150,16 @@ function functionalize(expr::FlatExpr, previous_params::Vector{ExcelExpr})
     new_parts = Vector{ExcelExpr}(undef, length(expr.parts) - length(to_remove))
     add_i = 1
 
+    function add_param(part::ExcelExpr)
+        param_expr = convert_to_expr(part, expr)
+        param_idx = findfirst(isequal(param_expr), previous_params)
+        if isnothing(param_idx)
+            push!(previous_params, param_expr)
+            ExcelExpr(:func_param, Any[length(previous_params)])
+        else
+            ExcelExpr(:func_param, Any[param_idx])
+        end
+    end
     # new_expr = copy(expr)
     # to_remove = Vector{Int}()
     for i in eachindex(expr.parts)
@@ -1157,8 +1167,7 @@ function functionalize(expr::FlatExpr, previous_params::Vector{ExcelExpr})
 
         part = expr.parts[i]
         if part.head in (:cell_ref, :sheet_ref, :named_range, :range, :table_ref)
-            push!(previous_params, convert_to_expr(part, expr))
-            new_parts[add_i] = ExcelExpr(:func_param, Any[length(previous_params)])
+            new_parts[add_i] = add_param(part)
         else
             # new_args = similar(part.args)
             if all(v -> !(v isa FlatIdx), part.args)
