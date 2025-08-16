@@ -14,6 +14,8 @@ function infer_types(used_subset::XLConvert.WorkbookSubset)
             rem_edge!(graph, cycle[end], cycle[begin])
         end
     end
+    # rev_cycles = Graphs.simplecycles(reverse(graph))
+    # @show rev_cycles
     topo_levels = get_topo_levels_bottom_up(graph)
     max_level = maximum(values(topo_levels))
     grouped_by_level = Dict((l => [kv.first for kv in topo_levels if kv.second == l]) for l in 0:max_level)
@@ -21,7 +23,7 @@ function infer_types(used_subset::XLConvert.WorkbookSubset)
     wb = used_subset.wb
     all_ref_cells = get_all_referenced_cells(wb)
 
-    cell_types = Dict{CellDependency,Any}()
+    cell_types = Dict{CellDependency, Any}()
 
     input_cells = all_ref_cells[grouped_by_level[0]]
     for cell_dep in input_cells
@@ -91,16 +93,32 @@ function coord_to_cell_name(row, col)
     string(XLSX.encode_column_number(col), row)
 end
 
+struct FastHashedFlatExpr
+    expr::XLConvert.FlatExpr
+end
+
+function Base.hash(x::FastHashedFlatExpr, h::UInt)
+    h = hash(:FlatExpr, h)
+    for e in x.expr.parts
+        h = hash(e.head, h)
+    end
+
+    h
+end
+Base.:(==)(a::FastHashedFlatExpr, b::FastHashedFlatExpr) = a.expr == b.expr
+Base.isequal(a::FastHashedFlatExpr, b::FastHashedFlatExpr) = isequal(a.expr, b.expr)
+
 function find_tables_in_sheet(sheet_name, cells)
-    
+
     # formula_cells = filter(c -> c isa XLConvert.FormulaCell, cells)
     formula_cells = cells
     # @show length(formula_cells)
 
-    functionalized = [XLConvert.FormulaCell(cell.cell, XLConvert.functionalize(cell.expr)[1]) for cell in formula_cells] 
+    functionalized = [XLConvert.FormulaCell(cell.cell, XLConvert.functionalize(cell.expr)[1]) for cell in formula_cells]
+    @show typeof(functionalized)
 
     # uses_same_function = XLConvert.group_to_dict(functionalized, c -> string(c.expr))
-    uses_same_function = XLConvert.group_to_dict(functionalized, c -> c.expr)
+    uses_same_function = XLConvert.group_to_dict(functionalized, c -> FastHashedFlatExpr(c.expr))
 
     tables = Vector{XLConvert.ExcelTable}()
 
@@ -150,10 +168,10 @@ function find_tables_in_sheet(sheet_name, cells)
     end
 
     function merge_tables(a::XLConvert.ExcelTable, b::XLConvert.ExcelTable)
-        a.sheet_name != b.sheet_name  && return nothing
+        a.sheet_name != b.sheet_name && return nothing
 
         if XLConvert.startrow(a) == XLConvert.startrow(b) && XLConvert.endrow(a) == XLConvert.endrow(b)
-            if XLConvert.endcol(a) + 1 == XLConvert.startcol(b) 
+            if XLConvert.endcol(a) + 1 == XLConvert.startcol(b)
                 # Merge columns
                 top_left = a.top_left
                 bottom_right = b.bottom_right
@@ -161,7 +179,7 @@ function find_tables_in_sheet(sheet_name, cells)
                 col_names = XLSX.encode_column_number.(XLConvert.startcol(a):XLConvert.endcol(b))
                 new_table = ExcelTable(a.sheet_name, table_name, top_left, bottom_right, "", "", col_names, missing)
                 return new_table
-            elseif XLConvert.endcol(b) + 1 == XLConvert.startcol(a) 
+            elseif XLConvert.endcol(b) + 1 == XLConvert.startcol(a)
                 # Merge columns
                 top_left = b.top_left
                 bottom_right = a.bottom_right
@@ -198,7 +216,7 @@ function find_tables_in_sheet(sheet_name, cells)
     end
 
     println("Made $(length(tables)) tables on sheet $sheet_name")
-    sort!(tables, by=t -> (XLConvert.startrow(t), XLConvert.startcol(t)))
+    sort!(tables, by = t -> (XLConvert.startrow(t), XLConvert.startcol(t)))
 
     # new_tables = Vector{XLConvert.ExcelTable}()
     not_done = true
@@ -239,6 +257,7 @@ function find_tables_in_sheet(sheet_name, cells)
 
     tables
 end
+
 function find_tables(used_subset::XLConvert.WorkbookSubset)
     wb = used_subset.wb
     cells_by_sheet = XLConvert.group_to_dict(filter(c -> wb.cell_dict[c] isa XLConvert.FormulaCell, keys(wb.cell_dict)), c -> c.sheet_name)
@@ -289,12 +308,12 @@ function get_statements(wb::XLConvert.ExcelWorkbook2)
     target_output = CellDependency("Results", "C26")
     all_target_outputs = [target_output]
 
-    @time used_subset = get_workbook_subset(wb, all_target_outputs)
+    @time "get_workbook_subset" used_subset = get_workbook_subset(wb, all_target_outputs)
 
     println("-"^40)
     println("Finding Tables")
     println("-"^40)
-    @time tables = find_tables(used_subset)
+    @time "find_tables" tables = find_tables(used_subset)
     push!(tables, DefTable(xf, "Depreciation", "MACRS", "C15", "H35", "C14:H14", ""))
 
     # return
@@ -314,13 +333,32 @@ function get_statements(wb::XLConvert.ExcelWorkbook2)
     # #     []
     # # end
 
-    # statements = make_statements(used_subset)
-    # if_multiple_transform!(statements)
-    # if_toggle_transform!(statements)
-    # round_if_transform!(statements)
-    # table_ref_transform!(statements, tables)
+    @time "make_statements" statements = make_statements(used_subset)
+    if_multiple_transform!(statements)
+    if_toggle_transform!(statements)
+    round_if_transform!(statements)
+    table_ref_transform!(statements, tables)
 
-    # statements
+    println("-"^40)
+    println("Table Broadcast Transform")
+    println("-"^40)
+    @time statements = table_broadcast_transform_2d!(statements)
+
+    statements
+end
+
+function find_tables(wb)
+    target_output = CellDependency("Results", "C26")
+    all_target_outputs = [target_output]
+
+    @time used_subset = get_workbook_subset(wb, all_target_outputs)
+
+    println("-"^40)
+    println("Finding Tables")
+    println("-"^40)
+    @time tables = find_tables(used_subset)
+    push!(tables, DefTable(wb.xf, "Depreciation", "MACRS", "C15", "H35", "C14:H14", ""))
+
 end
 
 function run(wb::XLConvert.ExcelWorkbook2)
@@ -364,6 +402,8 @@ function run(wb::XLConvert.ExcelWorkbook2)
         @time "if_toggle_transform" if_toggle_transform!(statements)
         @time "round_if_transform" round_if_transform!(statements)
         @time "table_ref_transform" table_ref_transform!(statements, tables)
+        table_stmts = filter(s -> s isa XLConvert.TableStatement, statements)
+        @show length(table_stmts)
 
         # statements
 
@@ -420,7 +460,7 @@ function run(wb::XLConvert.ExcelWorkbook2)
     # end
 
     # return
-    
+
     # topo_sorted = topological_sort(reverse(stmt_graph))
     # # @show statements[topo_sorted[end]]
     # stmt_topo_levels = get_topo_levels_top_down(stmt_graph)

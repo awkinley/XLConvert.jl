@@ -91,10 +91,16 @@ end
 
 function convert_cell(sheet, sheet_name, cell::XLSX.Cell)
     if has_formula(cell)
-        @assert !(cell.formula isa XLSX.FormulaReference)
-        expr = toexpr(cell.formula.formula)
-        lower_sheet_names!(expr, sheet_name)
-        FormulaCell(cell, expr)
+        try
+            @assert !(cell.formula isa XLSX.FormulaReference)
+            expr = toexpr(cell.formula.formula)
+            lower_sheet_names!(expr, sheet_name)
+            FormulaCell(cell, convert_to_flat_expr(expr))
+        catch e
+            println("Failed to parse cell formula")
+            println(cell.formula.formula)
+            throw(e)
+        end
     else
         ValueCell(cell, XLSX.getdata(sheet, cell))
     end
@@ -168,8 +174,10 @@ function get_all_dependencies(cell_dict::Dict{CellDependency, CellTypes}, key_va
             try
                 output[cell] = get_expr_dependencies(content.expr, key_values)
             catch e
-                @show cell
+                println("Error getting cell dependencies for cell $cell")
+                # @show cell
                 @show content
+                @show e
                 # throw(e)
             end
         end
@@ -236,7 +244,19 @@ function parse_workbook(filepath::AbstractString)
 
     # parsed_key_values = Dict((p[1] => lower_sheet_names(FormulaParser.toexpr(repr(p[2])), "")) for p in XLSX.get_workbook(xf).workbook_names)
     # parsed_key_values = Dict((p[1] => lower_sheet_names(toexpr(repr(p[2])), "")) for p in XLSX.get_workbook(xf).workbook_names)
-    parsed_key_values = Dict((p[1] => lower_sheet_names(toexpr(string(p[2])), "")) for p in XLSX.get_workbook(xf).workbook_names)
+    parsed_key_values = Dict{String, Any}()
+    for p in XLSX.get_workbook(xf).workbook_names
+        try
+            expr = toexpr(string(p[2]))
+            lower_sheet_names!(expr, "")
+            parsed_key_values[p[1]] = convert_to_flat_expr(expr)
+        catch e
+            println("Failed to parse named range formula")
+            println(p[1] * ": " * string(p[2]))
+            @show e
+        end
+    end
+    # parsed_key_values = Dict((p[1] => lower_sheet_names(toexpr(string(p[2])), "")) for p in XLSX.get_workbook(xf).workbook_names)
     # @show keys(XLSX.get_workbook(xf).workbook_names)
 
     @time cell_dependencies = get_all_dependencies(cell_dict, parsed_key_values)

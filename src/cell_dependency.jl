@@ -13,11 +13,18 @@ function Base.isless(a::CellDependency, b::CellDependency)
     Base.isless(as_tuple(a), as_tuple(b))
 end
 
+function Base.show(io::IO, cell_dep::CellDependency)
+    print(io, "CellDep(", cell_dep.sheet_name, "!", cell_dep.cell, ")")
+end
+
 
 
 cell_parse_rgx = r"[$]?([A-Z]+)[$]?([0-9]+)"
 function offset(cell::CellDependency, rows::Int, cols::Int)
-    CellDependency(cell.sheet_name, offset_cell_str(cell.cell, rows, cols))
+    new_cell = offset_cell_str(cell.cell, rows, cols, false)
+    isnothing(new_cell) && return missing
+
+    CellDependency(cell.sheet_name, new_cell)
     # cell_match = match(cell_parse_rgx, cell.cell)
     # @assert cell_match.match == cell.cell "Cell didn't parse properly"
     # col_str = cell_match[1]

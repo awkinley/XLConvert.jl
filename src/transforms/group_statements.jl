@@ -32,7 +32,7 @@ function debug_group_statements(statements::Vector{AbstractStatement}, graph, to
         @show length(level_limiters)
 
         if length(level_limiters) == 1
-            max_compress_level = maximum(filter(l -> l != node_level - 1, dep_levels), init=0)
+            max_compress_level = maximum(filter(l -> l != node_level - 1, dep_levels), init = 0)
             # max_compress_level = maximum(dep_levels[level_limiters], init=0)
             true, dependencies[level_limiters[1]], max_compress_level
         else
@@ -98,7 +98,7 @@ function group_statements(statements::Vector{AbstractStatement}, graph, topo_lev
 
 
         if length(level_limiters) == 1
-            max_compress_level = maximum(filter(l -> l != node_level - 1, dep_levels), init=0)
+            max_compress_level = maximum(filter(l -> l != node_level - 1, dep_levels), init = 0)
             # max_compress_level = maximum(dep_levels[level_limiters], init=0)
             true, dependencies[level_limiters[1]], max_compress_level
         else
@@ -150,5 +150,15 @@ function group_statements(statements::Vector{AbstractStatement})
     stmt_graph = make_statement_graph(grouped)
     stmt_topo_levels = get_topo_levels_bottom_up(stmt_graph)
     group_statements(grouped, stmt_graph, stmt_topo_levels)
+
+end
+function debug_group_statements(statements::Vector{AbstractStatement}, set_cell::CellDependency)
+    stmt_graph = make_statement_graph(statements)
+    stmt_topo_levels = get_topo_levels_top_down(stmt_graph)
+    # grouped = group_statements(statements, stmt_graph, stmt_topo_levels)
+    # stmt_graph = make_statement_graph(grouped)
+    # stmt_topo_levels = get_topo_levels_bottom_up(stmt_graph)
+    node = findfirst(s -> set_cell in get_set_cells(s), statements)
+    debug_group_statements(grouped, stmt_graph, stmt_topo_levels, node)
 
 end

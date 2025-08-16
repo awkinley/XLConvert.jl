@@ -174,6 +174,7 @@ end
 
 function equal_with_offset(a::FlatExpr, b::FlatExpr, rows::Int, cols::Int)
     if length(a.parts) != length(b.parts)
+        # println("not equal because of num parts")
         return false
     end
 
@@ -197,6 +198,7 @@ function equal_with_offset(a::FlatExpr, b::FlatExpr, rows::Int, cols::Int)
             end
 
             if a_coords != b_coords
+                # println("not equal because of cell_ref coords at idx $i")
                 return false
             end
 
@@ -205,6 +207,7 @@ function equal_with_offset(a::FlatExpr, b::FlatExpr, rows::Int, cols::Int)
             # end
 
             if !(@view(a_expr.args[2:end]) == @view(b_expr.args[2:end]))
+                # println("not equal because of cell_ref remaining args at idx $i")
                 return false
             end
 
@@ -229,7 +232,10 @@ function equal_with_offset(a::FlatExpr, b::FlatExpr, rows::Int, cols::Int)
             #     (true, false) => first(row_idx):(last(row_idx)+rows)
             #     (false, true) => (first(row_idx)+rows):last(row_idx)
             # end
-            a_args[2] != row_idx && return false
+            if a_args[2] != row_idx
+                # println("not equal because of a_args[2] != row_idx at idx $i")
+                return false
+            end
 
             fixed_col::Tuple{Bool, Bool} = b_args[4]
             col_idx = offset_table_idx(col_idx, fixed_col, cols)
@@ -240,9 +246,18 @@ function equal_with_offset(a::FlatExpr, b::FlatExpr, rows::Int, cols::Int)
             #     (false, true) => (first(col_idx)+cols):last(col_idx)
             # end
 
-            a_args[3] != col_idx && return false
-            a_args[4] != b_args[4] && return false
-            a_args[5] != b_args[5] && return false
+            if a_args[3] != col_idx
+                # println("not equal because of a_args[3] != col_idx at idx $i")
+                return false
+            end
+            if a_args[4] != b_args[4]
+                # println("not equal because of a_args[4] != b_args[4] at idx $i")
+                return false
+            end
+            if a_args[5] != b_args[5]
+                # println("not equal because of a_args[5] != b_args[5] at idx $i")
+                return false
+            end
 
             # !isequal(a_expr, offset(b_expr, rows, cols)) && return false
         end
@@ -324,6 +339,7 @@ function table_broadcast_transform_2d!(statements::Vector{AbstractStatement})
     # stmt_to_level = Dict((stmt => stmt_topo_levels[i]) for (i, stmt) in enumerate(statements))
     # table_statements::Vector{TableStatement} = filter(s -> isa(s, TableStatement), statements)
     table_statement_idxs::Vector{Int64} = filter(i -> isa(statements[i], TableStatement), eachindex(statements))
+    # @show table_statement_idxs statements[table_statement_idxs]
     # node_nums = used_subset.node_nums
 
 
@@ -351,17 +367,27 @@ function table_broadcast_transform_2d!(statements::Vector{AbstractStatement})
             return true
         end
 
-        if lvl_b > lvl_a
-            return !has_path_within(stmt_graph, node_b, node_a, lvl_b - lvl_a, path_seen)
+        has_path = if lvl_b > lvl_a
+            has_path_within(stmt_graph, node_b, node_a, lvl_b - lvl_a, path_seen)
         else
-            return !has_path_within(stmt_graph, node_a, node_b, lvl_a - lvl_b, path_seen)
+            has_path_within(stmt_graph, node_a, node_b, lvl_a - lvl_b, path_seen)
         end
+
+        # if has_path
+        #     println("Nodes have the same equation but are not independent")
+        #     println(statements[node_a])
+        #     println(statements[node_b])
+
+        # end
+
+        !has_path
     end
 
     # get_num_parts = i -> length(statements[i].rhs_expr.parts)
     get_num_parts = i -> get_stmt_num_expr_parts(statements[i])
 
-    inner_group_by_func = (i, j) -> (get_num_parts(i) == get_num_parts(j)) && table_statements_have_same_equation(statements[i], statements[j]) && is_independent(i, j)
+    # inner_group_by_func = (i, j) -> (get_num_parts(i) == get_num_parts(j)) && table_statements_have_same_equation(statements[i], statements[j]) && is_independent(i, j)
+    inner_group_by_func = (i, j) -> table_statements_have_same_equation(statements[i], statements[j]) && is_independent(i, j)
 
     # same_table_and_level = group_to_dict(table_statement_idxs, i -> (get_stmt_table(statements[i]), stmt_topo_levels[i]))
     same_table_and_level = group_to_dict(table_statement_idxs, i -> get_stmt_table(statements[i]))
@@ -369,8 +395,10 @@ function table_broadcast_transform_2d!(statements::Vector{AbstractStatement})
     groups = Vector{Vector{Int64}}()
     @time "grouping" for group in values(same_table_and_level)
         # @show length(group)
+        # @show group
         # @time closure = transitiveclosure(stmt_graph)
         same_num_parts = group_to_dict(group, get_num_parts)
+        # @show same_num_parts
         # @show length(same_num_parts)
         for sub_group in values(same_num_parts)
             # @show sub_group
@@ -381,6 +409,7 @@ function table_broadcast_transform_2d!(statements::Vector{AbstractStatement})
         # same_equations = group_by(group, inner_group_by_func)
         # append!(groups, same_equations)
     end
+    # @show groups
 
     new_statements = copy(statements)
 
@@ -430,9 +459,10 @@ function table_broadcast_transform_2d!(statements::Vector{AbstractStatement})
             broadcasted = try
                 convert_to_broadcasted(first_expr, length(rows) - 1, length(cols) - 1)
             catch ex
+                println("Failed to broadcast, would have broadcasted a run of $(region_area)")
                 @show ex
                 @show sheet rows cols
-                println("Failed to broadcast, would have broadcasted a run of $(region_area)")
+                show(stdout, "text/plain", first_expr)
 
                 statement_group = statements[run_statements]
                 statement_set = Set(statement_group)

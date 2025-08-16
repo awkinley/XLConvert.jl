@@ -14,36 +14,50 @@ include("./functions/comparison.jl")
 flatten(arr::AbstractArray) = reduce(vcat, arr)
 flatten(arr) = arr
 
-function offset_cell_str(cell::T, rows::Int, cols::Int) where {T <: AbstractString}
+function offset_cell_str(cell::T, rows::Int, cols::Int, allow_invalid::Bool) where {T <: AbstractString}
     first_let = findfirst(c -> 'A' <= c <= 'Z', cell)
     first_num = findfirst(isdigit, cell)
 
-    col_str = if cell[first_num-1] == '$'
+    col_fixed = cell[1] == '$'
+    row_fixed = cell[first_num-1] == '$'
+
+    col_str = if row_fixed
         @view cell[first_let:(first_num-2)]
     else
         @view cell[first_let:(first_num-1)]
     end
     row_str = @view cell[first_num:end]
 
-    if cell[1] == '$'
-        new_col = col_str
+
+    if col_fixed
+        new_col = '$' * col_str
     else
         new_col_num = XLSX.decode_column_number(col_str) + cols
         # This allows for (invalid) offsetting of expressions into negative columns
+        if new_col_num <= 0 && !allow_invalid
+            return nothing
+        end
+
         if new_col_num >= 1
             new_col = XLSX.encode_column_number(new_col_num)
         else
             new_col = string(new_col_num)
         end
     end
-    if cell[first_num-1] == '$'
-        new_row = row_str
+
+    if row_fixed
+        new_row = '$' * row_str
     else
-        new_row = string(parse(Int, row_str) + rows)
+        row_num = parse(Int, row_str)
+        if (row_num + rows) <= 0 && !allow_invalid
+            return nothing
+        end
+        new_row = string(row_num + rows)
     end
 
     new_col * new_row
 end
+offset_cell_str(cell::T, rows::Int, cols::Int) where {T <: AbstractString} = offset_cell_str(cell, rows, cols, true)
 
 
 function offset(value, ::Int, ::Int)

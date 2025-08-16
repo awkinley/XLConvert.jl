@@ -2,7 +2,7 @@
 mutable struct TableStatement <: AbstractStatement
     lhs_expr::ExcelExpr
     assigned_vars::Vector{CellDependency}
-    rhs_expr
+    rhs_expr::Any
     rhs_dependencies::Vector{CellDependency}
     is_broadcast::Bool
 end
@@ -57,8 +57,9 @@ function to_string(exporter, statement::TableStatement)
     "TableStatement(lhs = $lhs)"
 end
 function Base.show(io::IO, stmt::TableStatement)
-    assigned_cells = string.(stmt.assigned_vars)
-    print(io, "TableStatement($assigned_cells)")
+    assigned_cells = join(string.(stmt.assigned_vars), ", ")
+    # assigned_cells = stmt.assigned_vars
+    print(io, "TableStatement([$assigned_cells)]")
 end
 
 
@@ -81,7 +82,7 @@ function export_statement(exporter::JuliaExporter, wb::ExcelWorkbook, statement:
 
     function replace_func_params(expr, params_dict)
         @match expr begin
-            ExcelExpr(:func_param, [param_num,]) => get(params_dict, param_num, expr)
+            ExcelExpr(:func_param, [param_num]) => get(params_dict, param_num, expr)
             ExcelExpr(head, args) => ExcelExpr(head, map(e -> replace_func_params(e, params_dict), args)...)
             _ => expr
         end
@@ -92,7 +93,7 @@ function export_statement(exporter::JuliaExporter, wb::ExcelWorkbook, statement:
         run_cells = sort(statement.assigned_vars)
         if contains_if(expr)
             function_expr, params = functionalize(expr)
-            typed_params = Dict{Int64,ExcelExpr}()
+            typed_params = Dict{Int64, ExcelExpr}()
             for param_num in eachindex(params)
                 param = params[param_num]
                 param_type = Any
@@ -126,9 +127,15 @@ function export_statement(exporter::JuliaExporter, wb::ExcelWorkbook, statement:
             @. $lhs = $rhs
             """
         else
-            # @show lhs
-            # @info "export table statement" sheet expr
-            rhs = convert(exporter, expr, sheet)
+            try
+                rhs = convert(exporter, expr, sheet)
+            catch e
+                println("Failed to convert table rhs expr")
+                @show lhs
+                # @info "export table statement" sheet expr
+                show(stdout, "text/plain", expr)
+                throw(e)
+            end
             """
             # $(to_string(run_cells[1])):$(to_string(run_cells[end]))
             @. $lhs = $rhs
@@ -139,7 +146,16 @@ function export_statement(exporter::JuliaExporter, wb::ExcelWorkbook, statement:
         if !ismissing(table) && !ismissing(lhs_row_idx)
             row_str = "Row: $(row_name(table, lhs_row_idx))"
         end
-        rhs = convert(exporter, expr, sheet)
+        try
+            rhs = convert(exporter, expr, sheet)
+        catch e
+            println("Failed to convert table rhs expr")
+            @show statement.assigned_vars
+            # @show expr
+            show(stdout, "text/plain", expr)
+            @show e
+            throw(e)
+        end
         @assert length(statement.assigned_vars) == 1
         "$lhs = $rhs # $(cell_ref.sheet_name) $(cell_ref.cell) $row_str\n"
     end

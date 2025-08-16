@@ -25,8 +25,9 @@ function can_be_for_looped(expressions, row_offset, col_offset)
         start_row_idx = first_val.args[2]
         start_col_idx = first_val.args[3]
     else
-        println("Failed because a changing param wasn't a table ref")
-        return false
+        # println("Failed because a changing param wasn't a table ref")
+        return CantLoop("A changing param wasn't a table ref, $(first_val)")
+        # return false
     end
 
     for j in eachindex(expressions)[2:end]
@@ -38,12 +39,14 @@ function can_be_for_looped(expressions, row_offset, col_offset)
             good_row = row_idx == start_row_idx .+ ((j - 1) * row_offset)
             good_col = col_idx == start_col_idx .+ ((j - 1) * col_offset)
             if !(good_row && good_col)
-                println("Failed because an expression wasn't offset correctly")
-                return false
+                # println("Failed because an expression wasn't offset correctly")
+                return CantLoop("An expression wasn't offset correctly, $(good_row), $(good_col)")
+                # return false
             end
         else
-            println("Failed because a changing param wasn't a table ref")
-            return false
+            # println("Failed because a changing param wasn't a table ref")
+            return CantLoop("a changing param wasn't a table ref, $(val)")
+            # return false
         end
     end
 
@@ -63,12 +66,12 @@ function make_loop_idx_str(base_idx, offset)
 end
 
 struct CustomFuncParamHandler
-    value_getter
+    value_getter::Any
 end
 
 function handle(handler::CustomFuncParamHandler, expr, exporter::JuliaExporter, ctx)
     @match expr begin
-        ExcelExpr(:func_param, [param_num,]) => begin
+        ExcelExpr(:func_param, [param_num]) => begin
             handler.value_getter(param_num, exporter, ctx)
         end
         ExcelExpr(:func_param, [param_num, type]) => begin
@@ -78,23 +81,43 @@ function handle(handler::CustomFuncParamHandler, expr, exporter::JuliaExporter, 
     end
 end
 
-function replace_func_params(expr, params_dict)
+replace_func_params(expr, params_dict) = expr
+function replace_func_params(expr::ExcelExpr, params_dict)
     @match expr begin
-        ExcelExpr(:func_param, [param_num,]) => get(params_dict, param_num, expr)
-        ExcelExpr(head, args) => ExcelExpr(head, map(e -> replace_func_params(e, params_dict), args)...)
+        ExcelExpr(:func_param, [param_num]) => get(params_dict, param_num, expr)
+        # ExcelExpr(head, args) => ExcelExpr(head, map(e -> replace_func_params(e, params_dict), args)...)
         _ => expr
     end
+end
+
+function replace_func_params(expr::FlatExpr, params_dict)
+    new_expr = FlatExpr(copy(expr.parts))
+    for i in eachindex(expr.parts)
+        part = expr.parts[i]
+        new_expr.parts[i] = @match part begin
+            ExcelExpr(:func_param, [param_num]) => get(params_dict, param_num, part)
+            _ => part
+        end
+
+    end
+
+    new_expr
+end
+
+struct CantLoop
+    reason::String
 end
 
 function can_loop_stmts(statements::AbstractArray{AbstractStatement}, functionalized)
     if any(!(s isa TableStatement) for s in statements)
         # They need to all be TableStatements
-        println("Failed because not every statement was a table statement")
-        return false
+        # println("Failed because not every statement was a table statement")
+        return CantLoop("not every statement was a table statement")
     end
 
     if length(statements) == 0
-        return false
+        return CantLoop("No statements")
+        # return false
     end
 
     all_params = []
@@ -106,8 +129,9 @@ function can_loop_stmts(statements::AbstractArray{AbstractStatement}, functional
         # for s in statements[2:end]
         #     new_func, func_params = functionalize(s.rhs_expr, [])
         if func != new_func
-            println("Failed because not all the functions are the same")
-            return false
+            # println("Failed because not all the functions are the same")
+            return CantLoop("Not all the functions are the same")
+            # return false
         end
 
         push!(all_params, func_params)
@@ -139,23 +163,27 @@ function can_loop_stmts(statements::AbstractArray{AbstractStatement}, functional
     dcol = diff(col_nums)
     if !all(drow .== drow[1]) || !all(dcol .== dcol[1])
         # Non-constant offset
-        println("Failed because there is not a consistent offset")
-        return false
+        # println("Failed because there is not a consistent offset")
+        return CantLoop("There is not a consistent offset")
+        # return false
     end
     row_offset = drow[1]
     col_offset = dcol[1]
 
     # if !all(can_be_for_looped.(eachcol(params[:, changing_params]), row_offset, col_offset))
-    if !all(x -> can_be_for_looped(x, row_offset, col_offset), eachcol(params[:, changing_params]))
-        println("Failed because a changing parameter couldn't be for looped")
-        return false
+    if !all(x -> can_be_for_looped(x, row_offset, col_offset) == true, eachcol(params[:, changing_params]))
+        # println("Failed because a changing parameter couldn't be for looped")
+        reasons = map(x -> can_be_for_looped(x, row_offset, col_offset), eachcol(params[:, changing_params]))
+        return CantLoop("A changing parameter couldn't be for looped, \n$(reasons)")
+        # return false
     end
 
     lhs_exprs = map(s -> s.lhs_expr, statements)
 
     if !(can_be_for_looped(lhs_exprs, row_offset, col_offset))
-        println("Failed because a lhs couldn't be for looped")
-        return false
+        # println("Failed because a lhs couldn't be for looped")
+        return CantLoop("A changing lhs couldn't be for looped")
+        # return false
     end
 
     true
@@ -207,8 +235,18 @@ function export_looped(exporter::JuliaExporter, wb::ExcelWorkbook, statements)
     end
 
     fixed_params_dict = Dict(fixed_params .=> map(v -> v[1], param_sets[fixed_params]))
+    println("Inserting fixed params")
+    @show fixed_params_dict
+
+    println("Original expr")
+    show(stdout, "text/plain", statements[1].rhs_expr)
+    println("Before replacing func params")
+    show(stdout, "text/plain", func)
     rhs_expr = replace_func_params(func, fixed_params_dict)
-    typed_params = Dict{Int64,ExcelExpr}()
+    # println("After replacing func params")
+    # show(stdout, "text/plain", func)
+
+    typed_params = Dict{Int64, ExcelExpr}()
     # @show changing_params
     for param_num in changing_params
         all_exprs = params[:, param_num]
@@ -216,7 +254,11 @@ function export_looped(exporter::JuliaExporter, wb::ExcelWorkbook, statements)
         param_type = reduce(union_types, map(e -> get_type(e, table.sheet_name, exporter.cell_types, exporter.named_values), all_exprs))
         typed_params[param_num] = ExcelExpr(:func_param, param_num, param_type)
     end
+    # println("Before replacing func params")
+    # show(stdout, "text/plain", rhs_expr)
     rhs_expr = replace_func_params(rhs_expr, typed_params)
+    # println("After replacing func params")
+    # show(stdout, "text/plain", rhs_expr)
 
     custom_handler = CustomFuncParamHandler(get_param_str)
     custom_exporter = JuliaExporter(exporter.wb, exporter.var_names, exporter.tables, exporter.named_values, [custom_handler, exporter.handlers...], exporter.cell_types)
@@ -247,10 +289,19 @@ function export_with_for_loops(exporter::JuliaExporter, wb::ExcelWorkbook, state
 
     functionalized = maybe_functionalize.(sub_statements)
 
+    name = get_function_name(exporter, statement)
     for i in 2:length(sub_statements)
         # @show i
-        if !can_loop_stmts(@view(sub_statements[last_idx:i]), @view(functionalized[last_idx:i]))
-            push!(can_loop_ranges, last_idx:i-1)
+        can_loop = can_loop_stmts(@view(sub_statements[last_idx:i]), @view(functionalized[last_idx:i]))
+        if can_loop != true
+            # println("Sub Statements[1]")
+            # show(stdout, "text/plain", sub_statements[1].rhs_expr)
+            # println("functionalized[1]")
+            # show(stdout, "text/plain", functionalized[1][1])
+            # println(functionalized[1][2])
+            println("$name: couldn't for loop at i = $i because $(can_loop.reason)")
+            # throw(can_loop.reason)
+            push!(can_loop_ranges, last_idx:(i-1))
             last_idx = i
         end
     end
@@ -262,6 +313,7 @@ function export_with_for_loops(exporter::JuliaExporter, wb::ExcelWorkbook, state
         if length(stmt_indices) == 1
             push!(lines, export_statement(exporter, wb, sub_statements[first(stmt_indices)]))
         else
+            println("$name: looping $(length(stmt_indices)) statements")
             push!(lines, export_looped(exporter, wb, sub_statements[stmt_indices]))
         end
     end
@@ -284,7 +336,7 @@ function try_make_for_loop(exporter::JuliaExporter, wb::ExcelWorkbook, statement
         end
     end
     usage_counts = collect(zip(keys(function_usages), length.(values(function_usages))))
-    sort!(usage_counts, rev=true, by=v -> v[2])
+    sort!(usage_counts, rev = true, by = v -> v[2])
     # @show usage_counts
 
     most_used_func = usage_counts[1][1]
@@ -355,7 +407,7 @@ function try_make_for_loop(exporter::JuliaExporter, wb::ExcelWorkbook, statement
 
     fixed_params_dict = Dict(fixed_params .=> map(v -> v[1], param_sets[fixed_params]))
     rhs_expr = replace_func_params(most_used_func, fixed_params_dict)
-    typed_params = Dict{Int64,ExcelExpr}()
+    typed_params = Dict{Int64, ExcelExpr}()
     for param_num in changing_params
         all_exprs = params[:, param_num]
         param_type = reduce(union_types, map(e -> get_type(e, table.sheet_name, exporter.cell_types, exporter.named_values), all_exprs))
@@ -386,6 +438,16 @@ function get_grouped_statement_body(exporter::JuliaExporter, wb::ExcelWorkbook, 
     #     body = reduce(*, [export_statement(exporter, wb, s) for s in statement.sub_statements])
     # end
     # body
+end
+
+function get_function_name(exporter::JuliaExporter, statement::GroupedStatement)
+    needed_vars = get_cell_deps(statement)
+
+    scope_vars = get_required_scope_vars(exporter.tables, exporter.var_names, needed_vars)
+    cell_for_naming = get_set_cells(statement)[end]
+    function_name = "group_calculate_$(normalize_var_name(cell_for_naming.sheet_name))_$(cell_for_naming.cell)"
+
+    function_name
 end
 
 

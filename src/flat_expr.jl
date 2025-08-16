@@ -20,6 +20,20 @@ function Base.show(io::IO, expr::FlatExpr)
     print(io, "FlatExpr($(expr.parts))")
 end
 
+function Base.show(io::IO, ::MIME"text/plain", expr::FlatExpr)
+    println(io, "FlatExpr")
+    for i in eachindex(expr.parts)
+        println(io, "\t", i, ":", expr.parts[i])
+    end
+end
+
+function pretty_string(expr::FlatExpr)
+    io = IOBuffer()
+    show(io, "text/plain", expr)
+
+    String(take!(io))
+end
+
 convert_to_flat_expr(val) = val
 
 function convert_to_flat_expr(expr::ExcelExpr, start_idx::Int)

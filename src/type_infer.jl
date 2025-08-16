@@ -117,7 +117,7 @@ union_types(a::Set{DataType}, b::Type) = union_types(a, Set{DataType}((b,)))
 
 get_type(::Float64, current_sheet, cell_types, key_values) = Float64
 get_type(::Int64, current_sheet, cell_types, key_values) = Float64
-get_type(::String, current_sheet, cell_types, key_values) = String
+get_type(::AbstractString, current_sheet, cell_types, key_values) = String
 get_type(::Bool, current_sheet, cell_types, key_values) = Bool
 get_type(::Type{T}, current_sheet, cell_types, key_values) where {T} = T
 get_type(::Missing, current_sheet, cell_types, key_values) = Missing
@@ -159,7 +159,8 @@ function get_type(idx::FlatIdx, parts::FlatExpr, current_sheet, cell_types, key_
         ExcelExpr(:lt, [lhs, rhs]) => Bool
         ExcelExpr(:gt, [lhs, rhs]) => Bool
         ExcelExpr(:named_range, [name]) => c(key_values[name])
-        ExcelExpr(:sheet_ref, [sheet_name, ref]) => get_type(ref, sheet_name, cell_types, key_values)
+        # ExcelExpr(:sheet_ref, [sheet_name, ref]) => get_type(ref, sheet_name, cell_types, key_values)
+        ExcelExpr(:sheet_ref, [sheet_name, ref]) => c(ref)
 
         ExcelExpr(:table_ref, [table, row_idx, col_idx, _, _]) => begin
             rows = startrow(table) .+ row_idx .- 1

@@ -328,7 +328,7 @@ function get_expr_dependencies(expr::FlatExpr, key_values::Dict)
         @match part begin
             ExcelExpr(:cell_ref, [cell, sheet]) => push!(deps, CellDependency(sheet, cell))
             # ExcelExpr(:sheet_ref, (sheet_name, ref)) => get_expr_dependencies(ref, key_values)
-            ExcelExpr(:named_range, [name]) => get_expr_dependencies(key_values[name], key_values)
+            ExcelExpr(:named_range, [name]) => append!(deps, get_expr_dependencies(key_values[name], key_values))
             ExcelExpr(:range, [FlatIdx(lhs_i), FlatIdx(rhs_i)]) => begin
                 lhs_expr = expr.parts[lhs_i]
                 rhs_expr = expr.parts[rhs_i]
@@ -496,13 +496,11 @@ end
 
 insert_table_refs(expr, tables) = expr
 
-function cell_fixed_row(cell::String)
+function cell_fixed_col(cell::T) where {T <: AbstractString}
     cell[1] == '$'
 end
 
-function cell_fixed_col(cell::String)
-    cell[1] == '$'
-
+function cell_fixed_row(cell::T) where {T <: AbstractString}
     first_num = findfirst(isdigit, cell)
 
     cell[first_num-1] == '$'
@@ -515,6 +513,8 @@ function insert_table_refs(expr::FlatExpr, tables)
 
     deps = Vector{CellDependency}()
     handled = Set{Int}()
+    to_remove = Set{Int}()
+
     for (i, part) in enumerate(new_expr.parts)
         i in handled && continue
         @match part begin
@@ -531,6 +531,8 @@ function insert_table_refs(expr::FlatExpr, tables)
                         # fixed_row = offset(expr, 1, 0) == expr
                         # fixed_col = offset(expr, 0, 1) == expr
 
+                        # println("Inserting table ref into flatexpr at idx $i")
+                        # @show cell c r table row_idx col_idx
                         new_expr.parts[i] = ExcelExpr(:table_ref, Any[table, row_idx, col_idx, (fixed_row, fixed_row), (fixed_col, fixed_col)])
                     end
                 end
@@ -572,16 +574,41 @@ function insert_table_refs(expr::FlatExpr, tables)
 
                         new_expr.parts[i] = ExcelExpr(:table_ref, Any[table, row_start_idx:row_stop_idx, col_idx, fixed_row, fixed_col])
 
-                        push!(handled, lhs_i)
-                        push!(handled, rhs_i)
+                        # push!(handled, lhs_i)
+                        # push!(handled, rhs_i)
+                        push!(to_remove, lhs_i)
+                        push!(to_remove, rhs_i)
 
-                        continue
+                        break
                     end
                 end
+                push!(handled, lhs_i)
+                push!(handled, rhs_i)
             end
             _ => continue
         end
     end
+
+    for (part_i, part) in enumerate(new_expr.parts)
+        new_args = copy(part.args)
+        for (i, arg) in enumerate(new_args)
+            if arg isa FlatIdx
+                offset = 0
+                for t in to_remove
+                    if t < arg.i
+                        offset += 1
+                    end
+                end
+
+                new_i = arg.i - offset
+                new_args[i] = FlatIdx(new_i)
+            end
+
+        end
+        new_expr.parts[part_i] = ExcelExpr(part.head, new_args)
+        # part.args = new_args
+    end
+    deleteat!(new_expr.parts, sort(collect(to_remove)))
     new_expr
 end
 function insert_table_refs(expr::ExcelExpr, tables)
@@ -812,6 +839,15 @@ function contains_if(expr::ExcelExpr)
     end
 end
 
+function contains_if(expr::FlatExpr)
+    for part in expr.parts
+        if part.head == :call && part.args[1] == "IF"
+            return true
+        end
+    end
+    return false
+end
+
 convert_to_broadcasted(expr, row_offset, col_offset) = expr
 
 function convert_to_broadcasted(expr::ExcelExpr, row_offset, col_offset)
@@ -892,6 +928,110 @@ function convert_to_broadcasted(expr::ExcelExpr, row_offset, col_offset)
             # reduce(vcat, mapped)
         end
     end
+end
+
+function convert_to_broadcasted(expr::FlatExpr, row_offset, col_offset)
+
+    new_expr = copy(expr)
+
+    deps = Vector{CellDependency}()
+    handled = Set{Int}()
+    for (i, part) in enumerate(new_expr.parts)
+        i in handled && continue
+        @match part begin
+            ExcelExpr(:cell_ref, [cell, sheet::String]) => begin
+
+                range_start = CellDependency(sheet, cell)
+                stop_cell = offset_cell_str(cell, row_offset, col_offset)
+                range_stop = CellDependency(sheet, stop_cell)
+
+                if range_start != range_stop
+                    push!(new_expr.parts, ExcelExpr(:cell_ref, range_start.cell, sheet))
+                    i1 = length(new_expr.parts)
+                    push!(new_expr.parts, ExcelExpr(:cell_ref, range_stop.cell, sheet))
+                    i2 = length(new_expr.parts)
+                    push!(handled, i1)
+                    push!(handled, i2)
+
+                    new_expr.parts[i] = ExcelExpr(:range, FlatIdx(i1), FlatIdx(i2))
+
+                end
+            end
+
+            ExcelExpr(:range, [FlatIdx(lhs_i), FlatIdx(rhs_i)]) => begin
+                lhs_expr = new_expr.parts[lhs_i]
+                rhs_expr = new_expr.parts[rhs_i]
+                if !((lhs_expr.head == :cell_ref) && (rhs_expr.head == :cell_ref))
+                    throw("Don't know how to get dependencies for $(expr)")
+                end
+                sheet = lhs_expr.args[2]
+                if (sheet != rhs_expr.args[2])
+                    throw("Don't know how to get dependencies for $(expr)")
+                end
+
+                lhs = lhs_expr.args[1]
+                rhs = rhs_expr.args[1]
+
+                start_c, start_r = parse_cell(lhs)
+                stop_c, stop_r = parse_cell(rhs)
+
+                function is_fixed(cell)
+                    offset_cell_parse_rgx = r"([$]?[A-Z]+)([$]?[0-9]+)"
+                    cell_match = match(offset_cell_parse_rgx, cell)
+                    @assert cell_match.match == cell "Cell didn't parse properly"
+                    cell_match[1][1] == '$' && cell_match[2][1] == '$'
+                end
+                if is_fixed(lhs) && is_fixed(rhs)
+                    push!(handled, lhs_i)
+                    push!(handled, rhs_i)
+                    push!(new_expr.parts, part)
+                    idx = length(new_expr.parts)
+                    push!(handled, idx)
+                    new_expr.parts[i] = ExcelExpr(:broadcast_protect, FlatIdx(idx))
+                else
+                    throw("Converting ranged to broadcasted is complicated")
+                end
+            end
+
+            ExcelExpr(:table_ref, [table, row_idx, col_idx, fixed_row, fixed_col]) => begin
+                if fixed_row == (true, true) && fixed_col == (true, true)
+                    push!(new_expr.parts, part)
+                    idx = length(new_expr.parts)
+                    push!(handled, idx)
+                    new_expr.parts[i] = ExcelExpr(:broadcast_protect, FlatIdx(idx))
+                end
+
+                row_idx = @match fixed_row begin
+                    (true, true) => row_idx
+                    (false, false) => begin
+                        if length(row_idx) == 1
+                            row_idx[1]:(row_idx[1]+row_offset)
+                        else
+                            throw("Broadcasting table row range ref is complicated")
+                        end
+                    end
+                    (true, false) => throw("Broadcasting partially fixed table refs is complicated")
+                    (false, true) => throw("Broadcasting partially fixed table refs is complicated")
+                end
+                col_idx = @match fixed_col begin
+                    (true, true) => col_idx
+                    (false, false) => begin
+                        if length(col_idx) == 1
+                            col_idx[1]:(col_idx[1]+col_offset)
+                        else
+                            throw("Broadcasting table col range ref is complicated")
+                        end
+                    end
+                    (true, false) => throw("Broadcasting partially fixed table refs is complicated")
+                    (false, true) => throw("Broadcasting partially fixed table refs is complicated")
+                end
+
+                new_expr.parts[i] = ExcelExpr(:table_ref, table, row_idx, col_idx, fixed_row, fixed_col)
+            end
+            _ => continue
+        end
+    end
+    new_expr
 end
 
 function functionalize!(expr, previous_params::Vector{ExcelExpr})
@@ -1225,13 +1365,17 @@ function group_by(itr::Vector{T}, by) where {T}
     # find_func = (item, g) -> by(item, first(g))
 
     for item in itr
+        found = false
         for g in groups
             if by(item, first(g))
                 push!(g, item)
+                found = true
                 break
             end
         end
-        push!(groups, [item])
+        if !found
+            push!(groups, [item])
+        end
         # # ind = findfirst(g -> by(item, first(g)), groups)
         # ind = findfirst(Base.Fix1(find_func, item), groups)
         # if ind === nothing

@@ -60,7 +60,7 @@ const single_char_toks::Vector{Char} = ['+', '-', '*', '/', '^', '(', ')', ',', 
 function define_tokenizer()
 
     tokens = [
-        EXCEL_FUNCTION => re"(_xlfn\.)?[A-Z][A-Z0-9\.]*\(",
+        EXCEL_FUNCTION => re"(_xlfn\.)?[A-Z][A-Z0-9\.]*\(" | re"(_xll\.)?[A-Za-z_\\][A-Za-z0-9_\\\.]*\(",
         UNQUOTED_SHEET => re"[^'*\[\]\\:/\?\(\);{}#\"=<>&\+\-\*^%, ]+!",
         QUOTED_SHEET => re"'[^'*\[\]\\:/\?]+'!",
         FILE => re"\[[0-9+]\]",
@@ -76,7 +76,7 @@ function define_tokenizer()
         NAMED_RANGE_PREFIXED => re"(TRUE|FALSE|([A-Z]+[0-9]+))[A-Za-z0-9\\_]+",
         # (space, SPACE),
         NAMED_RANGE => re"[A-Za-z_\\][A-Za-z0-9\\_]*",
-        SPACE => re" ",
+        SPACE => re" |\n|\t",
     ]
 
     other_res = [
@@ -478,6 +478,7 @@ end
 
 function parse_binops_iter(iter::BinOpIter, min_bp::Int)
     lhs = next!(iter)
+    # @show lhs
     if isnothing(lhs)
         return nothing
     end
@@ -490,6 +491,7 @@ function parse_binops_iter(iter::BinOpIter, min_bp::Int)
 
     while true
         op = peek(iter)
+        # @show op
         if isnothing(op)
             break
         end
@@ -521,6 +523,16 @@ parse_binops_iter(iter::BinOpIter) = parse_binops_iter(iter, 0)
 
 
 function binop_formula(parser::Parser)
+    # println("binop_formula")
+    # for i in eachindex(parser.tokens)
+    #     tok = parser.tokens[i]
+    #     if i == parser.idx
+    #         print("****")
+    #     else
+    #         print("\t")
+    #     end
+    #     println(tok)
+    # end
     iter = BinOpIter(parser, nothing)
     parse_binops_iter(iter)
 end
