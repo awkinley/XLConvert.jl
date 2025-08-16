@@ -2,6 +2,7 @@ if false
     include("./src/XLConvert.jl")
 end
 using XLConvert
+using XLConvert: FlatExpr, FlatIdx
 using XLSX
 using Graphs
 using Match

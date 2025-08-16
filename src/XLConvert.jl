@@ -51,7 +51,8 @@ export CellDependency,
     endcol,
     startrow,
     endrow,
-    getname
+    getname,
+    xl_sum
 
 
 include("excel_expr.jl")

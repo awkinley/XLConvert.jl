@@ -58,9 +58,9 @@ function make_loop_idx_str(base_idx, offset)
         "$base_idx"
     else
         if offset == 1
-            "$base_idx .+ i"
+            "($base_idx) .+ i"
         else
-            "$base_idx .+ (i * $offset)"
+            "($base_idx) .+ (i * $offset)"
         end
     end
 end
@@ -450,6 +450,19 @@ function get_function_name(exporter::JuliaExporter, statement::GroupedStatement)
     function_name
 end
 
+function get_params_str(exporter::JuliaExporter, statement::GroupedStatement)
+    needed_vars = get_cell_deps(statement)
+
+    table_sub_stmts = filter(s -> s isa TableStatement, statement.sub_statements)
+    table_vars = [get_set_cells(stmt)[1] for stmt in table_sub_stmts]
+    append!(needed_vars, table_vars)
+
+    scope_vars = get_required_scope_vars(exporter.tables, exporter.var_names, needed_vars)
+    params_str = join(scope_vars, ", ")
+
+    params_str
+end
+
 
 function get_function_string(exporter::JuliaExporter, wb::ExcelWorkbook, statement::GroupedStatement)
     table_sub_stmts = filter(s -> s isa TableStatement, statement.sub_statements)
@@ -461,16 +474,18 @@ function get_function_string(exporter::JuliaExporter, wb::ExcelWorkbook, stateme
         return nothing
     end
 
-    needed_vars = get_cell_deps(statement)
+    # needed_vars = get_cell_deps(statement)
 
-    intermediate_vars = unique(reduce(vcat, get_set_cells.(statement.sub_statements)))
-    filter!(v -> !(v in intermediate_vars), needed_vars)
+    # intermediate_vars = unique(reduce(vcat, get_set_cells.(statement.sub_statements)))
+    # filter!(v -> !(v in intermediate_vars), needed_vars)
 
 
-    scope_vars = get_required_scope_vars(exporter.tables, exporter.var_names, needed_vars)
-    cell_for_naming = get_set_cells(statement)[end]
-    function_name = "group_calculate_$(normalize_var_name(cell_for_naming.sheet_name))_$(cell_for_naming.cell)"
-    params_str = join(scope_vars, ", ")
+    # scope_vars = get_required_scope_vars(exporter.tables, exporter.var_names, needed_vars)
+    # cell_for_naming = get_set_cells(statement)[end]
+    # function_name = "group_calculate_$(normalize_var_name(cell_for_naming.sheet_name))_$(cell_for_naming.cell)"
+    function_name = get_function_name(exporter, statement)
+    # params_str = join(scope_vars, ", ")
+    params_str = get_params_str(exporter, statement)
 
     middle_lines = get_grouped_statement_body(exporter, wb, statement)
     # middle_lines = reduce(*, [export_statement(exporter, wb, s) for s in statement.sub_statements])
@@ -497,15 +512,17 @@ function export_statement(exporter::JuliaExporter, wb::ExcelWorkbook, statement:
         end
         """
     else
-        needed_vars = get_cell_deps(statement)
+        # needed_vars = get_cell_deps(statement)
 
-        intermediate_vars = unique(reduce(vcat, get_set_cells.(statement.sub_statements)))
-        filter!(v -> !(v in intermediate_vars), needed_vars)
+        # intermediate_vars = unique(reduce(vcat, get_set_cells.(statement.sub_statements)))
+        # filter!(v -> !(v in intermediate_vars), needed_vars)
 
-        scope_vars = get_required_scope_vars(exporter.tables, exporter.var_names, needed_vars)
-        cell_for_naming = get_set_cells(statement)[end]
-        function_name = "group_calculate_$(normalize_var_name(cell_for_naming.sheet_name))_$(cell_for_naming.cell)"
-        params_str = join(scope_vars, ", ")
+        # scope_vars = get_required_scope_vars(exporter.tables, exporter.var_names, needed_vars)
+        # cell_for_naming = get_set_cells(statement)[end]
+        # function_name = "group_calculate_$(normalize_var_name(cell_for_naming.sheet_name))_$(cell_for_naming.cell)"
+        function_name = get_function_name(exporter, statement)
+        # params_str = join(scope_vars, ", ")
+        params_str = get_params_str(exporter, statement)
 
         """
         $function_name($params_str)
