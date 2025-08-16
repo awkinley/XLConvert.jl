@@ -1927,7 +1927,12 @@ function export_statements_levels(io::IO, exporter, wb::ExcelWorkbook, statement
             node = stmt_to_node[s]
             dependents = statements[inneighbors(stmt_graph, node)]
             if !isempty(dependents)
-                usages = "[" * join(to_string.((exporter,), dependents), ", ") * "]"
+                usages = if length(dependents) > 5
+                    "[" * join(to_string.((exporter,), dependents[1:4]), ", ") * ", ..., " * to_string(exporter, dependents[end]) * "]"
+                else
+                    "[" * join(to_string.((exporter,), dependents), ", ") * "]"
+                end
+                # usages = "[" * join(to_string.((exporter,), dependents), ", ") * "]"
                 write(io, "# Used in $(length(dependents)) places: $usages\n")
             end
 
