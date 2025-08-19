@@ -237,7 +237,7 @@ function equal_with_offset(a::FlatExpr, b::FlatExpr, rows::Int, cols::Int)
                 return false
             end
 
-            fixed_col::Tuple{Bool, Bool} = b_args[4]
+            fixed_col::Tuple{Bool, Bool} = b_args[5]
             col_idx = offset_table_idx(col_idx, fixed_col, cols)
             # col_idx = @match fixed_col begin
             #     (true, true) => col_idx
