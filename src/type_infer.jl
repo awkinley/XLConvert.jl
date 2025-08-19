@@ -386,6 +386,7 @@ function get_type(expr::ExcelExpr, current_sheet, cell_types, key_values)
             bool_returning_funcs = [
                 "AND",
                 "OR",
+                "ISBLANK",
             ]
 
             if fn_name in number_returning_funcs

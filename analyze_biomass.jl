@@ -7,6 +7,23 @@ using XLSX
 using Graphs
 using Match
 
+convert_is_blank!(expr) = expr
+function convert_is_blank!(expr::FlatExpr)
+    for (i, part) in enumerate(expr.parts)
+        if @ismatch part ExcelExpr(:eq, [FlatIdx(idx), ""])
+            expr.parts[i] = ExcelExpr(:call, Any["ISBLANK", FlatIdx(idx)])
+        end
+    end
+
+    expr
+end
+
+function is_blank_transform!(statements::AbstractArray{AbstractStatement})
+    for s in statements
+        XLConvert.apply_expr_transform!(s, (_, expr) -> convert_is_blank!(expr))
+    end
+end
+
 function infer_types(used_subset::XLConvert.WorkbookSubset)
     graph = used_subset.graph
     cycles = Graphs.simplecycles(graph)
@@ -479,6 +496,11 @@ function get_statements(wb::XLConvert.ExcelWorkbook2)
     println("-"^40)
     @time statements = table_broadcast_transform_2d!(statements)
 
+    println("-"^40)
+    println("Group statements")
+    println("-"^40)
+    @time statements = group_statements(statements)
+
     statements
 end
 
@@ -522,12 +544,8 @@ function run(wb::XLConvert.ExcelWorkbook2)
         @time "if_multiple_transform" if_multiple_transform!(statements)
         @time "if_toggle_transform" if_toggle_transform!(statements)
         @time "round_if_transform" round_if_transform!(statements)
+        # @time "is_blank_transform" is_blank_transform!(statements)
         @time "table_ref_transform" table_ref_transform!(statements, tables)
-        for (k, value) in wb.key_values
-            if value isa XLConvert.FlatExpr
-                wb.key_values[k] = XLConvert.insert_table_refs(value, tables)
-            end
-        end
         table_stmts = filter(s -> s isa XLConvert.TableStatement, statements)
         @show length(table_stmts)
 
@@ -554,11 +572,11 @@ function run(wb::XLConvert.ExcelWorkbook2)
         # println("-"^40)
         # println("Add functions")
         # println("-"^40)
-        # statements_with_funcs = add_functions(grouped_statements, min_intermediates=2)
+        statements_with_funcs = add_functions(grouped_statements, min_intermediates = 2)
         # statements_with_funcs = add_functions(statements, min_intermediates=2)
 
-        # statements_with_funcs
-        grouped_statements
+        statements_with_funcs
+        # grouped_statements
         # statements
     end
 
@@ -669,7 +687,12 @@ function run(wb::XLConvert.ExcelWorkbook2)
     handlers = [BasicOpHandler(), TableRefHandler(), EverythingElseHandler()]
 
     # key_values_dict = Dict((p[1] => FormulaParser.toexpr(repr(p[2]))) for p in XLSX.get_workbook(wb.xf).workbook_names)
-    key_values_dict = wb.key_values
+    key_values_dict = copy(wb.key_values)
+    for (k, value) in key_values_dict
+        if value isa XLConvert.FlatExpr
+            key_values_dict[k] = XLConvert.insert_table_refs(value, tables)
+        end
+    end
 
     println("Infer types")
     @time cell_types = infer_types(used_subset)
@@ -680,4 +703,6 @@ function run(wb::XLConvert.ExcelWorkbook2)
 
     println("Write file")
     @time write_file(exporter, "current_biomass_gasification.jl", wb, statements)
+
+    statements
 end

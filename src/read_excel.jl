@@ -1708,6 +1708,10 @@ function make_cell_to_statement_dict(statements::Vector{AbstractStatement})
                 @show cell
                 @show cell_to_statement[cell]
             end
+            if cell in keys(cell_to_statement)
+                println("Statement", statement, "sets cell", cell)
+                println("but statement", cell_to_statement[cell], "already set that cell")
+            end
             @assert !(cell in keys(cell_to_statement))
 
             cell_to_statement[cell] = statement

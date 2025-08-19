@@ -267,6 +267,7 @@ function xl_call_to_julia(fn_name, args)
         "OFFSET" => "xl_offset" * params
         "COUNTA" => "xl_counta" * params
         "NPV" => "xl_npv" * params
+        "ISBLANK" => "ismissing" * params
         fn_name => begin
             println("Function $fn_name not handled!")
             "xl_" * lowercase(fn_name) * params
@@ -324,6 +325,28 @@ function handle(::EverythingElseHandler, expr::ExcelExpr, exporter::JuliaExporte
             else
                 "(xl_logical($(func(cond))) ? $(func(t)) : $(func(f)))"
             end
+        end
+        ExcelExpr(:call, ["AND", args...]) => begin
+
+            function wrap_logical(e)
+                if get_type(e, sheetname(ctx), exporter.cell_types, exporter.named_values) == Bool
+                    func(e)
+                else
+                    "xl_logical($(func(e)))"
+                end
+            end
+            "all([" * join(map(wrap_logical, args), ", ") * "])"
+        end
+        ExcelExpr(:call, ["OR", args...]) => begin
+
+            function wrap_logical(e)
+                if get_type(e, sheetname(ctx), exporter.cell_types, exporter.named_values) == Bool
+                    func(e)
+                else
+                    "xl_logical($(func(e)))"
+                end
+            end
+            "any([" * join(map(wrap_logical, args), ", ") * "])"
         end
         ExcelExpr(:call, [fn_name, args...]) => xl_call_to_julia(fn_name, map(func, args))
         ExcelExpr(:broadcast_protect, [expr]) => "($(func(expr)),)"

@@ -180,7 +180,7 @@ function can_loop_stmts(statements::AbstractArray{AbstractStatement}, functional
 
     lhs_exprs = map(s -> s.lhs_expr, statements)
 
-    if !(can_be_for_looped(lhs_exprs, row_offset, col_offset))
+    if can_be_for_looped(lhs_exprs, row_offset, col_offset) != true
         # println("Failed because a lhs couldn't be for looped")
         return CantLoop("A changing lhs couldn't be for looped")
         # return false
