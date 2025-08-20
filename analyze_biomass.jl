@@ -504,7 +504,8 @@ function get_statements(wb::XLConvert.ExcelWorkbook2)
     statements
 end
 
-function run(wb::XLConvert.ExcelWorkbook2)
+function run(wb_in::XLConvert.ExcelWorkbook2)
+    wb = Base.deepcopy(wb_in)
     # file = "current-central-biomass-gasification-version-oct20.xlsm"
     # wb = parse_workbook(file)
     xf = wb.xf

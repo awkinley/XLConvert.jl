@@ -931,7 +931,6 @@ function convert_to_broadcasted(expr::ExcelExpr, row_offset, col_offset)
 end
 
 function convert_to_broadcasted(expr::FlatExpr, row_offset, col_offset)
-
     new_expr = copy(expr)
 
     deps = Vector{CellDependency}()
@@ -939,7 +938,7 @@ function convert_to_broadcasted(expr::FlatExpr, row_offset, col_offset)
     for (i, part) in enumerate(new_expr.parts)
         i in handled && continue
         @match part begin
-            ExcelExpr(:cell_ref, [cell, sheet::String]) => begin
+            ExcelExpr(:cell_ref, [cell, sheet]) => begin
 
                 range_start = CellDependency(sheet, cell)
                 stop_cell = offset_cell_str(cell, row_offset, col_offset)
