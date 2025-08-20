@@ -16,7 +16,23 @@ function to_string(exporter, statement::GroupedStatement)
     "GroupedStatement($children)"
 end
 
+
+function offset_with_fixed(idx::Int, fixed::Tuple{Bool, Bool}, offset::Int)
+    @match fixed begin
+        (true, true) => idx
+        (false, false) => idx + offset
+        (true, false) => idx:(idx+offset)
+        (false, true) => (idx+offset):idx
+    end
+end
+
+function offset_with_fixed(idx::UnitRange{Int}, fixed::Tuple{Bool, Bool}, offset::Int)
+    (first(idx)+(!fixed[1])*offset):(last(idx)+(!fixed[2])*offset)
+end
+
 function can_be_for_looped(expressions, row_offset, col_offset)
+    fixed_row = false
+    fixed_col = false
     start_row_idx = nothing
     start_col_idx = nothing
     # @show expressions
@@ -24,6 +40,8 @@ function can_be_for_looped(expressions, row_offset, col_offset)
     if first_val.head == :table_ref
         start_row_idx = first_val.args[2]
         start_col_idx = first_val.args[3]
+        fixed_row = first_val.args[4]
+        fixed_col = first_val.args[5]
     else
         # println("Failed because a changing param wasn't a table ref")
         return CantLoop("A changing param wasn't a table ref, $(first_val)")
@@ -36,11 +54,15 @@ function can_be_for_looped(expressions, row_offset, col_offset)
             row_idx = val.args[2]
             col_idx = val.args[3]
 
-            good_row = row_idx == start_row_idx .+ ((j - 1) * row_offset)
-            good_col = col_idx == start_col_idx .+ ((j - 1) * col_offset)
+            # good_row = row_idx == start_row_idx .+ ((j - 1) * row_offset)
+            # good_col = col_idx == start_col_idx .+ ((j - 1) * col_offset)
+            offset_row = offset_with_fixed(start_row_idx, fixed_row, ((j - 1) * row_offset))
+            good_row = row_idx == offset_row
+            good_col = col_idx == offset_with_fixed(start_col_idx, fixed_col, ((j - 1) * col_offset))
             if !(good_row && good_col)
                 # println("Failed because an expression wasn't offset correctly")
-                return CantLoop("An expression wasn't offset correctly, $(good_row), $(good_col)")
+
+                return CantLoop("An expression wasn't offset correctly, $(good_row), $(good_col), $(row_idx), $(offset_row)")
                 # return false
             end
         else
@@ -53,15 +75,44 @@ function can_be_for_looped(expressions, row_offset, col_offset)
     true
 end
 
-function make_loop_idx_str(base_idx, offset)
+function make_loop_idx_str(base_idx::Int, offset, fixed)
     if offset == 0
         "$base_idx"
+    elseif offset == 1
+        "$base_idx + i"
     else
+        "$base_idx + (i * $offset)"
+    end
+end
+
+function make_loop_idx_str(base_idx::UnitRange{Int}, offset, fixed)
+    if offset == 0
+        "$base_idx"
+    elseif fixed == (false, false)
         if offset == 1
-            "($base_idx) .+ i"
+            "$base_idx + i"
         else
-            "($base_idx) .+ (i * $offset)"
+            "$base_idx + (i * $offset)"
         end
+    else
+        left = string(first(base_idx))
+        if !fixed[1]
+            if offset == 1
+                left *= " + i"
+            else
+                left *= " + (i * $offset)"
+            end
+        end
+
+        right = string(last(base_idx))
+        if !fixed[2]
+            if offset == 1
+                right *= " + i"
+            else
+                right *= " + (i * $offset)"
+            end
+        end
+        "($left):($right)"
     end
 end
 
@@ -215,19 +266,19 @@ function export_looped(exporter::JuliaExporter, wb::ExcelWorkbook, statements)
 
     lhs_expr = lhs_exprs[1]
 
-    table, row_idx, col_idx, _, _ = lhs_expr.args
+    table, row_idx, col_idx, row_fixed, col_fixed = lhs_expr.args
 
-    row_str = make_loop_idx_str(row_idx, row_offset)
-    col_str = make_loop_idx_str(col_idx, col_offset)
+    row_str = make_loop_idx_str(row_idx, row_offset, row_fixed)
+    col_str = make_loop_idx_str(col_idx, col_offset, col_fixed)
     lhs_str = "$(getname(table))[$row_str, $col_str]"
     # println("\t$str")
 
     function get_param_str(param_num, exporter, ctx)
         if param_num in changing_params
             param_expr = params[1, param_num]
-            table, row_idx, col_idx, _, _ = param_expr.args
-            row_str = make_loop_idx_str(row_idx, row_offset)
-            col_str = make_loop_idx_str(col_idx, col_offset)
+            table, row_idx, col_idx, row_fixed, col_fixed = param_expr.args
+            row_str = make_loop_idx_str(row_idx, row_offset, row_fixed)
+            col_str = make_loop_idx_str(col_idx, col_offset, col_fixed)
             "$(getname(table))[$row_str, $col_str]"
         else
             throw("Tried to get param_str for param_num $param_num, but it wasn't a changing param")
