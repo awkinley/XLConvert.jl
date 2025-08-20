@@ -122,6 +122,17 @@ get_type(::Bool, current_sheet, cell_types, key_values) = Bool
 get_type(::Type{T}, current_sheet, cell_types, key_values) where {T} = T
 get_type(::Missing, current_sheet, cell_types, key_values) = Missing
 
+function print_type_debug(expr::FlatExpr, current_sheet, cell_types, key_values; num_indent = 1)
+    println("FlatExpr: ", get_type(expr, current_sheet, cell_types, key_values))
+    for i in eachindex(expr.parts)
+        println("\t"^num_indent, i, ":", expr.parts[i], ":", get_type(FlatIdx(i), expr, current_sheet, cell_types, key_values))
+        if expr.parts[i].head == :named_range
+            print_type_debug(key_values[expr.parts[i].args[1]], current_sheet, cell_types, key_values, num_indent = num_indent + 1)
+        end
+    end
+
+end
+
 function get_type(idx::FlatIdx, parts::FlatExpr, current_sheet, cell_types, key_values)
     function c(e)
         if e isa FlatIdx
@@ -167,7 +178,6 @@ function get_type(idx::FlatIdx, parts::FlatExpr, current_sheet, cell_types, key_
             cols = startcol(table) .+ col_idx .- 1
 
             cell_deps = [CellDependency(table.sheet_name, index_to_cellname(c, r)) for c in cols for r in rows]
-
             types = reduce(union_types, [get(cell_types, c, Any) for c in cell_deps])
             # @info "get_type for table_ref" types
 
@@ -187,9 +197,31 @@ function get_type(idx::FlatIdx, parts::FlatExpr, current_sheet, cell_types, key_
             types
         end
         # ExcelExpr(:range, (lhs, rhs)) => throw("Don't know how to get dependencies for $(expr)")
-        ExcelExpr(:range, args) => begin
-            # @info "get_type(::ExcelExpr) returning Any for range" args
-            Any
+        ExcelExpr(:range, [FlatIdx(lhs_i), FlatIdx(rhs_i)]) => begin
+            lhs_expr = parts.parts[lhs_i]
+            rhs_expr = parts.parts[rhs_i]
+            if !((lhs_expr.head == :cell_ref) && (rhs_expr.head == :cell_ref))
+                return Any
+            end
+            sheet = lhs_expr.args[2]
+            if (sheet != rhs_expr.args[2])
+                return Any
+            end
+
+            lhs = lhs_expr.args[1]
+            rhs = rhs_expr.args[1]
+
+            start_col, start_row = parse_cell(lhs)
+            end_col, end_row = parse_cell(rhs)
+
+            @assert end_row >= start_row
+            @assert end_col >= start_col
+
+            cell_deps = [CellDependency(sheet, index_to_cellname(c, r)) for c in start_col:end_col for r in start_row:end_row]
+
+            types = reduce(union_types, [get(cell_types, c, Any) for c in cell_deps])
+            # @info "get_type for range" types
+            types
         end
         ExcelExpr(:cell_ref, [cell, sheet]) => begin
             cell_dep = CellDependency(sheet, cell)
@@ -252,10 +284,12 @@ function get_type(idx::FlatIdx, parts::FlatExpr, current_sheet, cell_types, key_
                 Float64
             elseif fn_name == "_xlfn.XLOOKUP"
                 c(args[3])
+            elseif fn_name == "VLOOKUP"
+                c(args[2])
             elseif fn_name in bool_returning_funcs
                 Bool
             else
-                # @info "get_type(::ExcelExpr) returning Any for unknown function" fn_name args
+                # @info "get_type(::FlatExpr) returning Any for unknown function" fn_name args
                 Any
             end
             # fn_name in number_returning_funcs ? Float64 : Any

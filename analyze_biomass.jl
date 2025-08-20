@@ -707,3 +707,38 @@ function run(wb_in::XLConvert.ExcelWorkbook2)
 
     statements
 end
+
+function debug_types_for_statement(wb, statements, cell_dep)
+    target_output = CellDependency("Results", "C26")
+    all_target_outputs = [target_output]
+
+    @time used_subset = get_workbook_subset(wb, all_target_outputs)
+
+    key_values_dict = copy(wb.key_values)
+    # for (k, value) in key_values_dict
+    #     if value isa XLConvert.FlatExpr
+    #         key_values_dict[k] = XLConvert.insert_table_refs(value, tables)
+    #     end
+    # end
+
+    println("Infer types")
+    @time cell_types = infer_types(used_subset)
+    node = findfirst(s -> cell_dep in XLConvert.get_set_cells(s), statements)
+    @show node
+    statement = statements[node]
+    @show statement
+    if statement isa XLConvert.StandardStatement || statement isa XLConvert.TableStatement
+        expr = statement.rhs_expr
+        XLConvert.print_type_debug(expr, cell_dep.sheet_name, cell_types, key_values_dict)
+    elseif statement isa XLConvert.FunctionStatement
+        sub_node = findfirst(s -> cell_dep in XLConvert.get_set_cells(s), statement.intermediates)
+        @show sub_node
+        statement = statement.intermediates[sub_node]
+        if statement isa XLConvert.StandardStatement || statement isa XLConvert.TableStatement
+            expr = statement.rhs_expr
+            XLConvert.print_type_debug(expr, cell_dep.sheet_name, cell_types, key_values_dict)
+        end
+    end
+
+end
+
