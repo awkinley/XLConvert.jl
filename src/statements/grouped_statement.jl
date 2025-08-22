@@ -90,9 +90,9 @@ function make_loop_idx_str(base_idx::UnitRange{Int}, offset, fixed)
         "$base_idx"
     elseif fixed == (false, false)
         if offset == 1
-            "$base_idx + i"
+            "($base_idx) .+ i"
         else
-            "$base_idx + (i * $offset)"
+            "($base_idx) .+ (i * $offset)"
         end
     else
         left = string(first(base_idx))
@@ -279,6 +279,7 @@ function export_looped(exporter::JuliaExporter, wb::ExcelWorkbook, statements)
             table, row_idx, col_idx, row_fixed, col_fixed = param_expr.args
             row_str = make_loop_idx_str(row_idx, row_offset, row_fixed)
             col_str = make_loop_idx_str(col_idx, col_offset, col_fixed)
+            @show col_idx col_offset, col_fixed
             "$(getname(table))[$row_str, $col_str]"
         else
             throw("Tried to get param_str for param_num $param_num, but it wasn't a changing param")
@@ -551,6 +552,18 @@ function get_function_string(exporter::JuliaExporter, wb::ExcelWorkbook, stateme
 end
 
 function export_statement(exporter::JuliaExporter, wb::ExcelWorkbook, statement::GroupedStatement)
+    set_cells = get_set_cells(statement)
+    out_var_exprs = [ExcelExpr(:cell_ref, Any[cell.cell, cell.sheet_name]) for cell in set_cells]
+    out_var_exprs = map(Base.Fix2(insert_table_refs, exporter.tables), out_var_exprs)
+
+    variable_names = [convert(exporter, e, "") for e in out_var_exprs]
+
+    xf = wb.xf
+    assert_lines = ""
+    for (cell_ref, name) in zip(set_cells, variable_names)
+        assert_lines *= "@assert xl_compare($name, $(repr(xf[string(cell_ref.sheet_name)][cell_ref.cell]))) # $(to_string(cell_ref))\n"
+    end
+
 
     table_sub_stmts = filter(s -> s isa TableStatement, statement.sub_statements)
     if length(table_sub_stmts) != length(statement.sub_statements) || length(unique(get_set_table.(table_sub_stmts))) != 1
@@ -561,6 +574,7 @@ function export_statement(exporter::JuliaExporter, wb::ExcelWorkbook, statement:
         begin
         $middle_lines\
         end
+        $(assert_lines)
         """
     else
         # needed_vars = get_cell_deps(statement)
@@ -577,6 +591,7 @@ function export_statement(exporter::JuliaExporter, wb::ExcelWorkbook, statement:
 
         """
         $function_name($params_str)
+        $(assert_lines)
         """
     end
 end

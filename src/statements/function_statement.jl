@@ -76,11 +76,11 @@ function get_function_string(exporter::JuliaExporter, wb::ExcelWorkbook, stateme
 
     for child in statement.intermediates
         line = export_statement(exporter, wb, child)
-        if occursin("ExcelExpr", line)
-            @show line
-            @show child
-            throw("ExcelExpr seemed to get exported?")
-        end
+        # if occursin("ExcelExpr", line)
+        #     @show line
+        #     @show child
+        #     throw("ExcelExpr seemed to get exported?")
+        # end
         push!(function_lines, line)
     end
 

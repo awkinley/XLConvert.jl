@@ -52,7 +52,21 @@ export CellDependency,
     startrow,
     endrow,
     getname,
-    xl_sum
+    xl_sum,
+    xl_lt,
+    xl_gt,
+    xl_min,
+    xl_max,
+    xl_lookup,
+    xl_add,
+    xl_mul,
+    xl_div,
+    xl_pmt,
+    xl_npv,
+    xl_compare,
+    xl_average
+
+
 
 
 include("excel_expr.jl")

@@ -2215,6 +2215,14 @@ function write_file(exporter::JuliaExporter, file_name::AbstractString, wb::Exce
     write(output_file, "end\n")
     # write(output_file, "\ncalculate()")
 
+    run_str = """function run_crest_solar()
+        inputs = Inputs()
+        tables = make_input_tables()
+        calculate(inputs, tables)
+    end"""
+    write(output_file, "\n", run_str, "\n")
+
+
     close(output_file)
 end
 

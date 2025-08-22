@@ -247,6 +247,7 @@ end
 xl_logical(v::Bool) = v
 xl_logical(v::Number) = v == 1
 xl_logical(v::String) = v == "1"
+xl_logical(v::Missing) = false
 
 function eval_function(ctx::ExcelContext, fn_name, raw_args)
     args = map((a -> exec(a, ctx)), raw_args)
@@ -290,6 +291,9 @@ function asarray(x::Vector{Vector})
 end
 function asarray(x::AbstractArray)
     x
+end
+function asarray(x::DataFrame)
+    vec(Matrix(x))
 end
 
 function xl_sum_inner(val::Number)
@@ -347,7 +351,23 @@ xl_mod(a::AbstractArray, b::T) where {T <: AbstractFloat} = mod.(a, b)
 xl_mod(a::T, b::AbstractArray) where {T <: AbstractFloat} = mod.(a, b)
 
 function xl_pmt(rate, nper, pv)
+    @info "xl_pmt" rate nper pv
     -1 * sign(pv) * (pv * rate) / (1 - (1 + rate)^(-nper))
+end
+
+function xl_npv(rate, arg)
+    @info "xl_npv" rate arg
+    @show asarray(arg)
+    sum = 0
+    not_missing = asarray(filter(!ismissing, arg))
+    @show not_missing
+
+    for i in eachindex(not_missing)
+        sum += not_missing[i] / (1 + rate)^i
+    end
+
+    @show sum
+    sum
 end
 
 function xl_median(args...)
@@ -359,13 +379,47 @@ end
 function xl_min(v::T) where {T <: Number}
     v
 end
-function xl_min(arr::AbstractArray)
-    minimum(arr)
-end
+# function xl_min(arr::AbstractArray)
+#     minimum(arr)
+# end
 
 function xl_min(args...)
-    minimum(map(xl_min, args))
+    @info "xl_min with multiple args" args
+
+    res = 0
+    for a in args
+        if a isa Bool
+            res = min(res, a)
+        elseif a isa String
+            try
+                v = parse(Float64, a)
+                res = min(v, res)
+            catch
+                continue
+            end
+        elseif ismissing(a)
+            continue
+        else
+            @show a
+            values = coerce_numbers(asarray(a))
+            @show values
+            predicate = x -> ((x isa Number) && !(x isa Bool)) || (x isa Date)
+            filtered = filter(predicate, collect(Base.Flatten(values)))
+            @show filtered
+            if length(filtered) > 0
+                min_values = minimum(filtered)
+                res = min(res, min_values)
+            end
+        end
+    end
+    @info "xl_min result" res
+    res
+
 end
+
+# function xl_min(args...)
+#     minimum(map(xl_min, args))
+# end
 function xl_max(v::T) where {T <: Number}
     v
 end
@@ -378,7 +432,39 @@ notmissing(x) = !ismissing(x)
 xl_max2(a::Number, b::Number) = max(a, b)
 xl_max2(a::Number, b::Date) = max(xl_num_to_date(a), b)
 xl_max2(a::Date, b::Number) = xl_max(b, a)
+function coerce_number(v)
+    if v isa Real
+        v
+    elseif v isa Integer
+        v
+    elseif v isa String
+        try
+            v = parse(Float64, v)
+            v
+        catch
+            nothing
+        end
+    else
+        nothing
+    end
+end
+function coerce_numbers(values::AbstractArray)
+    result = []
+    for v in values
+        num = coerce_number(v)
+        if !isnothing(num)
+            push!(result, num)
+        end
+    end
+    result
+end
+
+# function xl_max(arr::AbstractArray)
+#     minimum(arr)
+# end
 function xl_max(args...)
+    @info "xl_max with multiple args" args
+
     res = 0
     for a in args
         if a isa Bool
@@ -390,13 +476,18 @@ function xl_max(args...)
             catch
                 continue
             end
+        elseif ismissing(a)
+            continue
         else
-            values = asarray(a)
+            values = coerce_numbers(asarray(a))
+            @show values
             predicate = x -> ((x isa Number) && !(x isa Bool)) || (x isa Date)
             filtered = filter(predicate, collect(Base.Flatten(values)))
-            # @show filtered
-            max_values = maximum(filtered)
-            res = xl_max2(res, max_values)
+            @show filtered
+            if length(filtered) > 0
+                max_values = maximum(filtered)
+                res = xl_max2(res, max_values)
+            end
         end
     end
     res
@@ -481,6 +572,24 @@ function xl_xlookup(lookup_value, lookup_array, return_array)
         end
     end
     missing
+end
+
+function xl_lookup(lookup_value, lookup_array, return_array)
+    @info "xl_lookup" lookup_value lookup_array return_array
+    best_value = -Inf
+    best_idx = -1
+    for i ∈ eachindex(lookup_array)
+        if xl_logical(xl_eq(lookup_value, lookup_array[i]))
+            return return_array[i]
+        end
+        if xl_logical(xl_lt(lookup_array[i], lookup_value))
+            if xl_logical(xl_gt(lookup_array[i], best_value))
+                best_value = lookup_array[i]
+                best_idx = i
+            end
+        end
+    end
+    return_array[best_idx]
 end
 
 function xl_floor(x, step)
