@@ -75,9 +75,9 @@ function export_statement(exporter::JuliaExporter, wb::ExcelWorkbook, statement:
     end
     expr = statement.rhs_expr
 
-    table, lhs_row_idx = @match statement.lhs_expr begin
-        ExcelExpr(:table_ref, [table, row_idx, col_idx, _, _]) => (table, row_idx)
-        _ => (missing, missing)
+    table, lhs_row_idx, lhs_col_idx = @match statement.lhs_expr begin
+        ExcelExpr(:table_ref, [table, row_idx, col_idx, _, _]) => (table, row_idx, col_idx)
+        _ => (missing, missing, missing)
     end
 
     function replace_func_params(expr, params_dict)
@@ -157,6 +157,14 @@ function export_statement(exporter::JuliaExporter, wb::ExcelWorkbook, statement:
             throw(e)
         end
         @assert length(statement.assigned_vars) == 1
-        "$lhs = $rhs # $(cell_ref.sheet_name) $(cell_ref.cell) $row_str\n"
+        xf = wb.xf
+        cell_ref = get_set_cells(statement)[1]
+
+        # "@assert xl_compare($lhs, $(repr(xf[string(cell_ref.sheet_name)][cell_ref.cell]))) # $(to_string(cell_ref))"
+        # "$lhs = $rhs # $(cell_ref.sheet_name) $(cell_ref.cell) $row_str\n"
+        """
+        $lhs = $rhs # $(cell_ref.sheet_name) $(cell_ref.cell) $row_str
+        @assert xl_compare($lhs, $(repr(xf[string(cell_ref.sheet_name)][cell_ref.cell]))) # $(to_string(cell_ref))
+        """
     end
 end

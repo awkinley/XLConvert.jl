@@ -571,7 +571,7 @@ function xl_xlookup(lookup_value, lookup_array, return_array)
             return return_array[i]
         end
     end
-    missing
+    nothing
 end
 
 function xl_lookup(lookup_value, lookup_array, return_array)
@@ -592,6 +592,29 @@ function xl_lookup(lookup_value, lookup_array, return_array)
     return_array[best_idx]
 end
 
+function xl_vlookup(lookup_value, lookup_array, lookup_col, approximate = true)
+    m = Matrix(lookup_array)
+    xp = m[:, 1]
+    yp = m[:, Int(lookup_col)]
+
+    xl_xlookup(lookup_value, xp, yp)
+end
+
+function xl_index(arr, row)
+    Matrix(arr)[row]
+end
+function xl_index(arr, row, col)
+    Matrix(arr)[row, col]
+end
+
+function xl_match(lookup_value, lookup_arr, match_type = 1)
+    findfirst(==(lookup_value), lookup_arr)
+end
+
+
+function xl_iferror(value, value_if_error)
+    isnothing(value) ? value_if_error : value
+end
 function xl_floor(x, step)
     floor(x / step) * step
 end

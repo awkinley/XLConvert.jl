@@ -1,6 +1,6 @@
 
 function normalize_var_name(name)
-    replace(name,
+    res = replace(name,
         ' ' => '_',
         '\'' => "",
         '\"' => "",
@@ -23,6 +23,12 @@ function normalize_var_name(name)
         ':' => "_",
         '?' => "_",
     )
+
+    if isnumeric(first(res))
+        res = "v$res"
+    end
+
+    res
 end
 
 function simple_variable_name(cell_ref::CellDependency)
@@ -121,7 +127,8 @@ function make_var_names_map(cell_dependencies::Vector{CellDependency}, wb::Excel
         end
 
         for c in cells
-            output[c] *= "_" * normalize_var_name(c.cell)
+            # output[c] *= "_" * normalize_var_name(c.cell)
+            output[c] *= "_" * normalize_var_name(c.sheet_name) * "_" * normalize_var_name(c.cell)
         end
     end
     # @show named_cells
@@ -187,8 +194,10 @@ function make_var_names_map(cell_dependencies, xf)
             continue
         end
 
+        @show cells
+
         for c in cells
-            output[c] *= "_" * normalize_var_name(c.cell)
+            output[c] *= "_" * normalize_var_name(c.sheet_name) * "_" * normalize_var_name(c.cell)
         end
     end
     # @show named_cells

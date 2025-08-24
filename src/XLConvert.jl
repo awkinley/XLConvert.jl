@@ -53,18 +53,28 @@ export CellDependency,
     endrow,
     getname,
     xl_sum,
+    xl_eq,
     xl_lt,
     xl_gt,
+    xl_leq,
+    xl_geq,
+    xl_logical,
     xl_min,
     xl_max,
     xl_lookup,
+    xl_xlookup,
+    xl_vlookup,
+    xl_index,
+    xl_match,
     xl_add,
+    xl_sub,
     xl_mul,
     xl_div,
     xl_pmt,
     xl_npv,
     xl_compare,
-    xl_average
+    xl_average,
+    xl_iferror
 
 
 
@@ -81,6 +91,7 @@ include("export_julia.jl")
 include("statement.jl")
 include("workbook_subset.jl")
 include("variable_naming.jl")
+include("expr_utils.jl")
 include("read_excel.jl")
 
 include("transforms/if_multiple.jl")

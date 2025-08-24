@@ -299,7 +299,7 @@ function handle(::EverythingElseHandler, expr::ExcelExpr, exporter::JuliaExporte
             col_values = (c -> exporter.var_names[CellDependency(sheet, index_to_cellname(c, start_row))]).(start_col:end_col)
             "[" * join(col_values, ", ") * "]"
         elseif start_col == end_col
-            row_values = (r -> exporter.var_names[CellDependency(sheet, index_to_cellname(start_col, r))]).(start_row:end_row)
+            row_values = (r -> get(exporter.var_names, CellDependency(sheet, index_to_cellname(start_col, r)), missing)).(start_row:end_row)
             "[" * join(row_values, ", ") * "]"
         else
             output = []
@@ -324,6 +324,14 @@ function handle(::EverythingElseHandler, expr::ExcelExpr, exporter::JuliaExporte
                 "($(func(cond)) ? $(func(t)) : $(func(f)))"
             else
                 "(xl_logical($(func(cond))) ? $(func(t)) : $(func(f)))"
+            end
+        end
+        ExcelExpr(:call, ["IF", cond, t]) => begin
+            cond_is_bool = get_type(cond, sheetname(ctx), exporter.cell_types, exporter.named_values) == Bool
+            if cond_is_bool
+                "($(func(cond)) ? $(func(t)) : missing)"
+            else
+                "(xl_logical($(func(cond))) ? $(func(t)) : missing)"
             end
         end
         ExcelExpr(:call, ["AND", args...]) => begin

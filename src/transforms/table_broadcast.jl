@@ -132,7 +132,7 @@ function exprs_equal_with_offset(a::ExcelExpr, b::ExcelExpr, rows::Int, cols::In
     end
 
     if a.head == :cell_ref
-        return a == offset(b, rows, cols)
+        return a == offset(b, rows, cols) && b == offset(a, -rows, -cols)
     elseif a.head == :table_ref
         # @show a
         # @show offset(b, rows, cols)
@@ -171,6 +171,18 @@ function offset_table_idx(idx::UnitRange{Int}, fixed::Tuple{Bool, Bool}, offset:
         (false, true) => (first(idx)+offset):last(idx)
     end
 end
+function cells_equal_offset(a_cell, b_cell, rows, cols)
+    a_coords = parse_cell(a_cell)
+    b_coords = parse_cell(b_cell)
+    if !(cell_fixed_row(b_cell))
+        b_coords = b_coords .+ (0, rows)
+    end
+    if !(cell_fixed_col(b_cell))
+        b_coords = b_coords .+ (cols, 0)
+    end
+
+    a_cell == b_coords
+end
 
 function equal_with_offset(a::FlatExpr, b::FlatExpr, rows::Int, cols::Int)
     if length(a.parts) != length(b.parts)
@@ -185,26 +197,8 @@ function equal_with_offset(a::FlatExpr, b::FlatExpr, rows::Int, cols::Int)
             return false
         end
         if a_expr.head == :cell_ref
-            a_coords = parse_cell(a_expr.args[1])
-            b_cell = b_expr.args[1]
-            b_coords = parse_cell(b_cell)
-            if !(cell_fixed_row(b_cell))
-                b_coords = b_coords .+ (0, rows)
-                # b_coords[2] += rows
-            end
-            if !(cell_fixed_col(b_cell))
-                b_coords = b_coords .+ (cols, 0)
-                # b_coords[1] += rows
-            end
-
-            if a_coords != b_coords
-                # println("not equal because of cell_ref coords at idx $i")
-                return false
-            end
-
-            # if a_expr.args[1] != offset_cell_str(b_expr.args[1], rows, cols)
-            #     return false
-            # end
+            cells_equal_offset(a_expr.args[1], b_expr.args[1], rows, cols) || return false
+            cells_equal_offset(b_expr.args[1], a_expr.args[1], rows, cols) || return false
 
             if !(@view(a_expr.args[2:end]) == @view(b_expr.args[2:end]))
                 # println("not equal because of cell_ref remaining args at idx $i")
@@ -487,10 +481,16 @@ function table_broadcast_transform_2d!(statements::Vector{AbstractStatement})
             # lhs_expr = ExcelExpr(:table_ref, table, (run_idx[begin]:run_idx[end]) .- startrow(table) .+ 1, run_statements[1].lhs_expr.args[3], (true, true), (true, true))
             table_rows = rows .- startrow(table) .+ 1
             table_cols = cols .- startcol(table) .+ 1
-            # println("Table start row = $(startrow(table)), start col = $(startcol(table))")
             # @show table
             # @show table_rows, table_cols
             lhs_expr = ExcelExpr(:table_ref, table, table_rows, table_cols, (true, true), (true, true))
+            # println("Broadcasting $(region_area) statements together. $(lhs_expr)")
+            # @show statement_group
+            # @show table_statements_have_same_equation(statement_group[1], statement_group[2])
+            # @show group statements[group]
+            # @show inner_group_by_func(group[1], group[2])
+            # @assert table_statements_have_same_equation(statement_group[1], statement_group[2])
+
 
             # lhs_vars = reduce(vcat, get_set_cells.(statements[run_statements]))
             lhs_vars = reduce(vcat, get_set_cells.(statement_group))

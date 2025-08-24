@@ -26,143 +26,145 @@ function group_calculate_Cash_Flow_AJ14(tab_Cash_Flow_G12_AJ15)
 	end
 	
 end
-function group_calculate_Cash_Flow_AJ12(s_Cash_Flow_H2, years_Q8, tab_Cash_Flow_G12_AJ15, s_Cash_Flow_I2, s_Cash_Flow_J2, s_Cash_Flow_K2, s_Cash_Flow_L2, s_Cash_Flow_M2, s_Cash_Flow_N2, s_Cash_Flow_O2, s_Cash_Flow_P2, s_Cash_Flow_Q2, s_Cash_Flow_R2, s_Cash_Flow_S2, s_Cash_Flow_T2, s_Cash_Flow_U2, s_Cash_Flow_V2, s_Cash_Flow_W2, s_Cash_Flow_X2, s_Cash_Flow_Y2, s_Cash_Flow_Z2, s_Cash_Flow_AA2, s_Cash_Flow_AB2, s_Cash_Flow_AC2, s_Cash_Flow_AD2, s_Cash_Flow_AE2, s_Cash_Flow_AF2, s_Cash_Flow_AG2, s_Cash_Flow_AH2, s_Cash_Flow_AI2, s_Cash_Flow_AJ2)
-	tab_Cash_Flow_G12_AJ15[1, "H"] = (xl_gt(s_Cash_Flow_H2, years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "G"]) # Cash Flow H12 Row: 1
+function group_calculate_Cash_Flow_AJ12(s_Cash_Flow_G72, ¢_per_kWh_Cash_Flow_F12, s_Cash_Flow_H2, years_Inputs_Q8, tab_Cash_Flow_G12_AJ15, s_Cash_Flow_I2, s_Cash_Flow_J2, s_Cash_Flow_K2, s_Cash_Flow_L2, s_Cash_Flow_M2, s_Cash_Flow_N2, s_Cash_Flow_O2, s_Cash_Flow_P2, s_Cash_Flow_Q2, s_Cash_Flow_R2, s_Cash_Flow_S2, s_Cash_Flow_T2, s_Cash_Flow_U2, s_Cash_Flow_V2, s_Cash_Flow_W2, s_Cash_Flow_X2, s_Cash_Flow_Y2, s_Cash_Flow_Z2, s_Cash_Flow_AA2, s_Cash_Flow_AB2, s_Cash_Flow_AC2, s_Cash_Flow_AD2, s_Cash_Flow_AE2, s_Cash_Flow_AF2, s_Cash_Flow_AG2, s_Cash_Flow_AH2, s_Cash_Flow_AI2, s_Cash_Flow_AJ2)
+	tab_Cash_Flow_G12_AJ15[1, "G"] = s_Cash_Flow_G72 * ¢_per_kWh_Cash_Flow_F12 # Cash Flow G12 Row: 1
+	@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "G"], 32.05) # "Cash Flow!G12"
+	tab_Cash_Flow_G12_AJ15[1, "H"] = (xl_gt(s_Cash_Flow_H2, years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "G"]) # Cash Flow H12 Row: 1
 	@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "H"], 32.05) # "Cash Flow!H12"
-	tab_Cash_Flow_G12_AJ15[1, "I"] = (xl_gt(s_Cash_Flow_I2, years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "H"]) # Cash Flow I12 Row: 1
+	tab_Cash_Flow_G12_AJ15[1, "I"] = (xl_gt(s_Cash_Flow_I2, years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "H"]) # Cash Flow I12 Row: 1
 	@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "I"], 32.05) # "Cash Flow!I12"
-	tab_Cash_Flow_G12_AJ15[1, "J"] = (xl_gt(s_Cash_Flow_J2, years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "I"]) # Cash Flow J12 Row: 1
+	tab_Cash_Flow_G12_AJ15[1, "J"] = (xl_gt(s_Cash_Flow_J2, years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "I"]) # Cash Flow J12 Row: 1
 	@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "J"], 32.05) # "Cash Flow!J12"
-	tab_Cash_Flow_G12_AJ15[1, "K"] = (xl_gt(s_Cash_Flow_K2, years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "J"]) # Cash Flow K12 Row: 1
+	tab_Cash_Flow_G12_AJ15[1, "K"] = (xl_gt(s_Cash_Flow_K2, years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "J"]) # Cash Flow K12 Row: 1
 	@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "K"], 32.05) # "Cash Flow!K12"
-	tab_Cash_Flow_G12_AJ15[1, "L"] = (xl_gt(s_Cash_Flow_L2, years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "K"]) # Cash Flow L12 Row: 1
+	tab_Cash_Flow_G12_AJ15[1, "L"] = (xl_gt(s_Cash_Flow_L2, years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "K"]) # Cash Flow L12 Row: 1
 	@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "L"], 32.05) # "Cash Flow!L12"
-	tab_Cash_Flow_G12_AJ15[1, "M"] = (xl_gt(s_Cash_Flow_M2, years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "L"]) # Cash Flow M12 Row: 1
+	tab_Cash_Flow_G12_AJ15[1, "M"] = (xl_gt(s_Cash_Flow_M2, years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "L"]) # Cash Flow M12 Row: 1
 	@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "M"], 32.05) # "Cash Flow!M12"
-	tab_Cash_Flow_G12_AJ15[1, "N"] = (xl_gt(s_Cash_Flow_N2, years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "M"]) # Cash Flow N12 Row: 1
+	tab_Cash_Flow_G12_AJ15[1, "N"] = (xl_gt(s_Cash_Flow_N2, years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "M"]) # Cash Flow N12 Row: 1
 	@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "N"], 32.05) # "Cash Flow!N12"
-	tab_Cash_Flow_G12_AJ15[1, "O"] = (xl_gt(s_Cash_Flow_O2, years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "N"]) # Cash Flow O12 Row: 1
+	tab_Cash_Flow_G12_AJ15[1, "O"] = (xl_gt(s_Cash_Flow_O2, years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "N"]) # Cash Flow O12 Row: 1
 	@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "O"], 32.05) # "Cash Flow!O12"
-	tab_Cash_Flow_G12_AJ15[1, "P"] = (xl_gt(s_Cash_Flow_P2, years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "O"]) # Cash Flow P12 Row: 1
+	tab_Cash_Flow_G12_AJ15[1, "P"] = (xl_gt(s_Cash_Flow_P2, years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "O"]) # Cash Flow P12 Row: 1
 	@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "P"], 32.05) # "Cash Flow!P12"
-	tab_Cash_Flow_G12_AJ15[1, "Q"] = (xl_gt(s_Cash_Flow_Q2, years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "P"]) # Cash Flow Q12 Row: 1
+	tab_Cash_Flow_G12_AJ15[1, "Q"] = (xl_gt(s_Cash_Flow_Q2, years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "P"]) # Cash Flow Q12 Row: 1
 	@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "Q"], 32.05) # "Cash Flow!Q12"
-	tab_Cash_Flow_G12_AJ15[1, "R"] = (xl_gt(s_Cash_Flow_R2, years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "Q"]) # Cash Flow R12 Row: 1
+	tab_Cash_Flow_G12_AJ15[1, "R"] = (xl_gt(s_Cash_Flow_R2, years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "Q"]) # Cash Flow R12 Row: 1
 	@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "R"], 32.05) # "Cash Flow!R12"
-	tab_Cash_Flow_G12_AJ15[1, "S"] = (xl_gt(s_Cash_Flow_S2, years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "R"]) # Cash Flow S12 Row: 1
+	tab_Cash_Flow_G12_AJ15[1, "S"] = (xl_gt(s_Cash_Flow_S2, years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "R"]) # Cash Flow S12 Row: 1
 	@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "S"], 32.05) # "Cash Flow!S12"
-	tab_Cash_Flow_G12_AJ15[1, "T"] = (xl_gt(s_Cash_Flow_T2, years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "S"]) # Cash Flow T12 Row: 1
+	tab_Cash_Flow_G12_AJ15[1, "T"] = (xl_gt(s_Cash_Flow_T2, years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "S"]) # Cash Flow T12 Row: 1
 	@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "T"], 32.05) # "Cash Flow!T12"
-	tab_Cash_Flow_G12_AJ15[1, "U"] = (xl_gt(s_Cash_Flow_U2, years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "T"]) # Cash Flow U12 Row: 1
+	tab_Cash_Flow_G12_AJ15[1, "U"] = (xl_gt(s_Cash_Flow_U2, years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "T"]) # Cash Flow U12 Row: 1
 	@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "U"], 32.05) # "Cash Flow!U12"
-	tab_Cash_Flow_G12_AJ15[1, "V"] = (xl_gt(s_Cash_Flow_V2, years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "U"]) # Cash Flow V12 Row: 1
+	tab_Cash_Flow_G12_AJ15[1, "V"] = (xl_gt(s_Cash_Flow_V2, years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "U"]) # Cash Flow V12 Row: 1
 	@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "V"], 32.05) # "Cash Flow!V12"
-	tab_Cash_Flow_G12_AJ15[1, "W"] = (xl_gt(s_Cash_Flow_W2, years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "V"]) # Cash Flow W12 Row: 1
+	tab_Cash_Flow_G12_AJ15[1, "W"] = (xl_gt(s_Cash_Flow_W2, years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "V"]) # Cash Flow W12 Row: 1
 	@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "W"], 32.05) # "Cash Flow!W12"
-	tab_Cash_Flow_G12_AJ15[1, "X"] = (xl_gt(s_Cash_Flow_X2, years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "W"]) # Cash Flow X12 Row: 1
+	tab_Cash_Flow_G12_AJ15[1, "X"] = (xl_gt(s_Cash_Flow_X2, years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "W"]) # Cash Flow X12 Row: 1
 	@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "X"], 32.05) # "Cash Flow!X12"
-	tab_Cash_Flow_G12_AJ15[1, "Y"] = (xl_gt(s_Cash_Flow_Y2, years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "X"]) # Cash Flow Y12 Row: 1
+	tab_Cash_Flow_G12_AJ15[1, "Y"] = (xl_gt(s_Cash_Flow_Y2, years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "X"]) # Cash Flow Y12 Row: 1
 	@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "Y"], 32.05) # "Cash Flow!Y12"
-	tab_Cash_Flow_G12_AJ15[1, "Z"] = (xl_gt(s_Cash_Flow_Z2, years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "Y"]) # Cash Flow Z12 Row: 1
+	tab_Cash_Flow_G12_AJ15[1, "Z"] = (xl_gt(s_Cash_Flow_Z2, years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "Y"]) # Cash Flow Z12 Row: 1
 	@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "Z"], 32.05) # "Cash Flow!Z12"
-	tab_Cash_Flow_G12_AJ15[1, "AA"] = (xl_gt(s_Cash_Flow_AA2, years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "Z"]) # Cash Flow AA12 Row: 1
+	tab_Cash_Flow_G12_AJ15[1, "AA"] = (xl_gt(s_Cash_Flow_AA2, years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "Z"]) # Cash Flow AA12 Row: 1
 	@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "AA"], 32.05) # "Cash Flow!AA12"
-	tab_Cash_Flow_G12_AJ15[1, "AB"] = (xl_gt(s_Cash_Flow_AB2, years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "AA"]) # Cash Flow AB12 Row: 1
+	tab_Cash_Flow_G12_AJ15[1, "AB"] = (xl_gt(s_Cash_Flow_AB2, years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "AA"]) # Cash Flow AB12 Row: 1
 	@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "AB"], 32.05) # "Cash Flow!AB12"
-	tab_Cash_Flow_G12_AJ15[1, "AC"] = (xl_gt(s_Cash_Flow_AC2, years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "AB"]) # Cash Flow AC12 Row: 1
+	tab_Cash_Flow_G12_AJ15[1, "AC"] = (xl_gt(s_Cash_Flow_AC2, years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "AB"]) # Cash Flow AC12 Row: 1
 	@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "AC"], 32.05) # "Cash Flow!AC12"
-	tab_Cash_Flow_G12_AJ15[1, "AD"] = (xl_gt(s_Cash_Flow_AD2, years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "AC"]) # Cash Flow AD12 Row: 1
+	tab_Cash_Flow_G12_AJ15[1, "AD"] = (xl_gt(s_Cash_Flow_AD2, years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "AC"]) # Cash Flow AD12 Row: 1
 	@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "AD"], 32.05) # "Cash Flow!AD12"
-	tab_Cash_Flow_G12_AJ15[1, "AE"] = (xl_gt(s_Cash_Flow_AE2, years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "AD"]) # Cash Flow AE12 Row: 1
+	tab_Cash_Flow_G12_AJ15[1, "AE"] = (xl_gt(s_Cash_Flow_AE2, years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "AD"]) # Cash Flow AE12 Row: 1
 	@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "AE"], 32.05) # "Cash Flow!AE12"
-	tab_Cash_Flow_G12_AJ15[1, "AF"] = (xl_gt(s_Cash_Flow_AF2, years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "AE"]) # Cash Flow AF12 Row: 1
+	tab_Cash_Flow_G12_AJ15[1, "AF"] = (xl_gt(s_Cash_Flow_AF2, years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "AE"]) # Cash Flow AF12 Row: 1
 	@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "AF"], 0.0) # "Cash Flow!AF12"
-	tab_Cash_Flow_G12_AJ15[1, "AG"] = (xl_gt(s_Cash_Flow_AG2, years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "AF"]) # Cash Flow AG12 Row: 1
+	tab_Cash_Flow_G12_AJ15[1, "AG"] = (xl_gt(s_Cash_Flow_AG2, years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "AF"]) # Cash Flow AG12 Row: 1
 	@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "AG"], 0.0) # "Cash Flow!AG12"
-	tab_Cash_Flow_G12_AJ15[1, "AH"] = (xl_gt(s_Cash_Flow_AH2, years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "AG"]) # Cash Flow AH12 Row: 1
+	tab_Cash_Flow_G12_AJ15[1, "AH"] = (xl_gt(s_Cash_Flow_AH2, years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "AG"]) # Cash Flow AH12 Row: 1
 	@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "AH"], 0.0) # "Cash Flow!AH12"
-	tab_Cash_Flow_G12_AJ15[1, "AI"] = (xl_gt(s_Cash_Flow_AI2, years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "AH"]) # Cash Flow AI12 Row: 1
+	tab_Cash_Flow_G12_AJ15[1, "AI"] = (xl_gt(s_Cash_Flow_AI2, years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "AH"]) # Cash Flow AI12 Row: 1
 	@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "AI"], 0.0) # "Cash Flow!AI12"
-	tab_Cash_Flow_G12_AJ15[1, "AJ"] = (xl_gt(s_Cash_Flow_AJ2, years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "AI"]) # Cash Flow AJ12 Row: 1
+	tab_Cash_Flow_G12_AJ15[1, "AJ"] = (xl_gt(s_Cash_Flow_AJ2, years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[1, "AI"]) # Cash Flow AJ12 Row: 1
 	@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "AJ"], 0.0) # "Cash Flow!AJ12"
 	
 end
 struct Outputs
-	¢_per_kWh_D14
+	¢_per_kWh_Summary_Results_D14
 end
 @kwdef mutable struct Inputs
-	# used in 1 statements, [s_Cash_Flow_H215]
+	# used in 1 statements, [tab_Cash_Flow_H205_I215[11, "H"]]
 	s_Cash_Flow_G216::Missing = missing
-	# used in 2 statements, [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...], [s_Cash_Flow_H12, s_Cash_Flow_I12, s_Cash_Flow_J12, s_Cash_Flow_K12, s_Cash_Fl...]
+	# used in 2 statements, [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...], [tab_Cash_Flow_G12_AJ15[1, "G"], tab_Cash_Flow_G12_AJ15[1, "H"], tab_Cash_Flow...]
 	s_Cash_Flow_H2::Float64 = 2.0
-	# used in 2 statements, [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...], [s_Cash_Flow_H12, s_Cash_Flow_I12, s_Cash_Flow_J12, s_Cash_Flow_K12, s_Cash_Fl...]
+	# used in 2 statements, [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...], [tab_Cash_Flow_G12_AJ15[1, "G"], tab_Cash_Flow_G12_AJ15[1, "H"], tab_Cash_Flow...]
 	s_Cash_Flow_I2::Float64 = 3.0
-	# used in 2 statements, [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...], [s_Cash_Flow_H12, s_Cash_Flow_I12, s_Cash_Flow_J12, s_Cash_Flow_K12, s_Cash_Fl...]
+	# used in 2 statements, [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...], [tab_Cash_Flow_G12_AJ15[1, "G"], tab_Cash_Flow_G12_AJ15[1, "H"], tab_Cash_Flow...]
 	s_Cash_Flow_J2::Float64 = 4.0
-	# used in 2 statements, [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...], [s_Cash_Flow_H12, s_Cash_Flow_I12, s_Cash_Flow_J12, s_Cash_Flow_K12, s_Cash_Fl...]
+	# used in 2 statements, [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...], [tab_Cash_Flow_G12_AJ15[1, "G"], tab_Cash_Flow_G12_AJ15[1, "H"], tab_Cash_Flow...]
 	s_Cash_Flow_K2::Float64 = 5.0
-	# used in 1 statements, [s_Cash_Flow_L215]
+	# used in 1 statements, [tab_Cash_Flow_L205_M215[11, "L"]]
 	s_Cash_Flow_K216::Missing = missing
-	# used in 2 statements, [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...], [s_Cash_Flow_H12, s_Cash_Flow_I12, s_Cash_Flow_J12, s_Cash_Flow_K12, s_Cash_Fl...]
+	# used in 2 statements, [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...], [tab_Cash_Flow_G12_AJ15[1, "G"], tab_Cash_Flow_G12_AJ15[1, "H"], tab_Cash_Flow...]
 	s_Cash_Flow_L2::Float64 = 6.0
-	# used in 2 statements, [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...], [s_Cash_Flow_H12, s_Cash_Flow_I12, s_Cash_Flow_J12, s_Cash_Flow_K12, s_Cash_Fl...]
+	# used in 2 statements, [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...], [tab_Cash_Flow_G12_AJ15[1, "G"], tab_Cash_Flow_G12_AJ15[1, "H"], tab_Cash_Flow...]
 	s_Cash_Flow_M2::Float64 = 7.0
-	# used in 2 statements, [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...], [s_Cash_Flow_H12, s_Cash_Flow_I12, s_Cash_Flow_J12, s_Cash_Flow_K12, s_Cash_Fl...]
+	# used in 2 statements, [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...], [tab_Cash_Flow_G12_AJ15[1, "G"], tab_Cash_Flow_G12_AJ15[1, "H"], tab_Cash_Flow...]
 	s_Cash_Flow_N2::Float64 = 8.0
-	# used in 2 statements, [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...], [s_Cash_Flow_H12, s_Cash_Flow_I12, s_Cash_Flow_J12, s_Cash_Flow_K12, s_Cash_Fl...]
+	# used in 2 statements, [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...], [tab_Cash_Flow_G12_AJ15[1, "G"], tab_Cash_Flow_G12_AJ15[1, "H"], tab_Cash_Flow...]
 	s_Cash_Flow_O2::Float64 = 9.0
 	# used in 1 statements, [s_Cash_Flow_R204]
 	s_Cash_Flow_O216::Missing = missing
-	# used in 2 statements, [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...], [s_Cash_Flow_H12, s_Cash_Flow_I12, s_Cash_Flow_J12, s_Cash_Flow_K12, s_Cash_Fl...]
+	# used in 2 statements, [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...], [tab_Cash_Flow_G12_AJ15[1, "G"], tab_Cash_Flow_G12_AJ15[1, "H"], tab_Cash_Flow...]
 	s_Cash_Flow_P2::Float64 = 10.0
-	# used in 2 statements, [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...], [s_Cash_Flow_H12, s_Cash_Flow_I12, s_Cash_Flow_J12, s_Cash_Flow_K12, s_Cash_Fl...]
+	# used in 2 statements, [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...], [tab_Cash_Flow_G12_AJ15[1, "G"], tab_Cash_Flow_G12_AJ15[1, "H"], tab_Cash_Flow...]
 	s_Cash_Flow_Q2::Float64 = 11.0
-	# used in 2 statements, [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...], [s_Cash_Flow_H12, s_Cash_Flow_I12, s_Cash_Flow_J12, s_Cash_Flow_K12, s_Cash_Fl...]
+	# used in 2 statements, [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...], [tab_Cash_Flow_G12_AJ15[1, "G"], tab_Cash_Flow_G12_AJ15[1, "H"], tab_Cash_Flow...]
 	s_Cash_Flow_R2::Float64 = 12.0
-	# used in 2 statements, [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...], [s_Cash_Flow_H12, s_Cash_Flow_I12, s_Cash_Flow_J12, s_Cash_Flow_K12, s_Cash_Fl...]
+	# used in 2 statements, [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...], [tab_Cash_Flow_G12_AJ15[1, "G"], tab_Cash_Flow_G12_AJ15[1, "H"], tab_Cash_Flow...]
 	s_Cash_Flow_S2::Float64 = 13.0
-	# used in 2 statements, [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...], [s_Cash_Flow_H12, s_Cash_Flow_I12, s_Cash_Flow_J12, s_Cash_Flow_K12, s_Cash_Fl...]
+	# used in 2 statements, [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...], [tab_Cash_Flow_G12_AJ15[1, "G"], tab_Cash_Flow_G12_AJ15[1, "H"], tab_Cash_Flow...]
 	s_Cash_Flow_T2::Float64 = 14.0
-	# used in 2 statements, [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...], [s_Cash_Flow_H12, s_Cash_Flow_I12, s_Cash_Flow_J12, s_Cash_Flow_K12, s_Cash_Fl...]
+	# used in 2 statements, [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...], [tab_Cash_Flow_G12_AJ15[1, "G"], tab_Cash_Flow_G12_AJ15[1, "H"], tab_Cash_Flow...]
 	s_Cash_Flow_U2::Float64 = 15.0
-	# used in 2 statements, [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...], [s_Cash_Flow_H12, s_Cash_Flow_I12, s_Cash_Flow_J12, s_Cash_Flow_K12, s_Cash_Fl...]
+	# used in 2 statements, [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...], [tab_Cash_Flow_G12_AJ15[1, "G"], tab_Cash_Flow_G12_AJ15[1, "H"], tab_Cash_Flow...]
 	s_Cash_Flow_V2::Float64 = 16.0
-	# used in 2 statements, [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...], [s_Cash_Flow_H12, s_Cash_Flow_I12, s_Cash_Flow_J12, s_Cash_Flow_K12, s_Cash_Fl...]
+	# used in 2 statements, [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...], [tab_Cash_Flow_G12_AJ15[1, "G"], tab_Cash_Flow_G12_AJ15[1, "H"], tab_Cash_Flow...]
 	s_Cash_Flow_W2::Float64 = 17.0
-	# used in 2 statements, [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...], [s_Cash_Flow_H12, s_Cash_Flow_I12, s_Cash_Flow_J12, s_Cash_Flow_K12, s_Cash_Fl...]
+	# used in 2 statements, [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...], [tab_Cash_Flow_G12_AJ15[1, "G"], tab_Cash_Flow_G12_AJ15[1, "H"], tab_Cash_Flow...]
 	s_Cash_Flow_X2::Float64 = 18.0
-	# used in 2 statements, [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...], [s_Cash_Flow_H12, s_Cash_Flow_I12, s_Cash_Flow_J12, s_Cash_Flow_K12, s_Cash_Fl...]
+	# used in 2 statements, [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...], [tab_Cash_Flow_G12_AJ15[1, "G"], tab_Cash_Flow_G12_AJ15[1, "H"], tab_Cash_Flow...]
 	s_Cash_Flow_Y2::Float64 = 19.0
-	# used in 2 statements, [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...], [s_Cash_Flow_H12, s_Cash_Flow_I12, s_Cash_Flow_J12, s_Cash_Flow_K12, s_Cash_Fl...]
+	# used in 2 statements, [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...], [tab_Cash_Flow_G12_AJ15[1, "G"], tab_Cash_Flow_G12_AJ15[1, "H"], tab_Cash_Flow...]
 	s_Cash_Flow_Z2::Float64 = 20.0
-	# used in 2 statements, [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...], [s_Cash_Flow_H12, s_Cash_Flow_I12, s_Cash_Flow_J12, s_Cash_Flow_K12, s_Cash_Fl...]
+	# used in 2 statements, [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...], [tab_Cash_Flow_G12_AJ15[1, "G"], tab_Cash_Flow_G12_AJ15[1, "H"], tab_Cash_Flow...]
 	s_Cash_Flow_AA2::Float64 = 21.0
-	# used in 2 statements, [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...], [s_Cash_Flow_H12, s_Cash_Flow_I12, s_Cash_Flow_J12, s_Cash_Flow_K12, s_Cash_Fl...]
+	# used in 2 statements, [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...], [tab_Cash_Flow_G12_AJ15[1, "G"], tab_Cash_Flow_G12_AJ15[1, "H"], tab_Cash_Flow...]
 	s_Cash_Flow_AB2::Float64 = 22.0
-	# used in 2 statements, [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...], [s_Cash_Flow_H12, s_Cash_Flow_I12, s_Cash_Flow_J12, s_Cash_Flow_K12, s_Cash_Fl...]
+	# used in 2 statements, [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...], [tab_Cash_Flow_G12_AJ15[1, "G"], tab_Cash_Flow_G12_AJ15[1, "H"], tab_Cash_Flow...]
 	s_Cash_Flow_AC2::Float64 = 23.0
-	# used in 2 statements, [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...], [s_Cash_Flow_H12, s_Cash_Flow_I12, s_Cash_Flow_J12, s_Cash_Flow_K12, s_Cash_Fl...]
+	# used in 2 statements, [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...], [tab_Cash_Flow_G12_AJ15[1, "G"], tab_Cash_Flow_G12_AJ15[1, "H"], tab_Cash_Flow...]
 	s_Cash_Flow_AD2::Float64 = 24.0
-	# used in 2 statements, [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...], [s_Cash_Flow_H12, s_Cash_Flow_I12, s_Cash_Flow_J12, s_Cash_Flow_K12, s_Cash_Fl...]
+	# used in 2 statements, [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...], [tab_Cash_Flow_G12_AJ15[1, "G"], tab_Cash_Flow_G12_AJ15[1, "H"], tab_Cash_Flow...]
 	s_Cash_Flow_AE2::Float64 = 25.0
-	# used in 2 statements, [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...], [s_Cash_Flow_H12, s_Cash_Flow_I12, s_Cash_Flow_J12, s_Cash_Flow_K12, s_Cash_Fl...]
+	# used in 2 statements, [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...], [tab_Cash_Flow_G12_AJ15[1, "G"], tab_Cash_Flow_G12_AJ15[1, "H"], tab_Cash_Flow...]
 	s_Cash_Flow_AF2::Float64 = 26.0
-	# used in 2 statements, [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...], [s_Cash_Flow_H12, s_Cash_Flow_I12, s_Cash_Flow_J12, s_Cash_Flow_K12, s_Cash_Fl...]
+	# used in 2 statements, [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...], [tab_Cash_Flow_G12_AJ15[1, "G"], tab_Cash_Flow_G12_AJ15[1, "H"], tab_Cash_Flow...]
 	s_Cash_Flow_AG2::Float64 = 27.0
-	# used in 2 statements, [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...], [s_Cash_Flow_H12, s_Cash_Flow_I12, s_Cash_Flow_J12, s_Cash_Flow_K12, s_Cash_Fl...]
+	# used in 2 statements, [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...], [tab_Cash_Flow_G12_AJ15[1, "G"], tab_Cash_Flow_G12_AJ15[1, "H"], tab_Cash_Flow...]
 	s_Cash_Flow_AH2::Float64 = 28.0
-	# used in 2 statements, [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...], [s_Cash_Flow_H12, s_Cash_Flow_I12, s_Cash_Flow_J12, s_Cash_Flow_K12, s_Cash_Fl...]
+	# used in 2 statements, [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...], [tab_Cash_Flow_G12_AJ15[1, "G"], tab_Cash_Flow_G12_AJ15[1, "H"], tab_Cash_Flow...]
 	s_Cash_Flow_AI2::Float64 = 29.0
-	# used in 2 statements, [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...], [s_Cash_Flow_H12, s_Cash_Flow_I12, s_Cash_Flow_J12, s_Cash_Flow_K12, s_Cash_Fl...]
+	# used in 2 statements, [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...], [tab_Cash_Flow_G12_AJ15[1, "G"], tab_Cash_Flow_G12_AJ15[1, "H"], tab_Cash_Flow...]
 	s_Cash_Flow_AJ2::Float64 = 30.0
-	# used in 1 statements, [¢_per_kWh_D14]
-	pcnt_G62::Float64 = 0.12
-	# used in 3 statements, [¢_per_kWh_D14], [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...], [s_Cash_Flow_H12, s_Cash_Flow_I12, s_Cash_Flow_J12, s_Cash_Flow_K12, s_Cash_Fl...]
-	years_Q8::Float64 = 25.0
-	# used in 1 statements, [¢_per_kWh_F13]
-	pcnt_Q9::Float64 = 0.0
-	# used in 1 statements, [s_Cash_Flow_G72, s_Cash_Flow_G12, s_Cash_Flow_G13, s_Cash_Flow_H13, s_Cash_Fl...]
-	pcnt_Q10::Float64 = 0.0
+	# used in 1 statements, [¢_per_kWh_Summary_Results_D14]
+	pcnt_Inputs_G62::Float64 = 0.12
+	# used in 3 statements, [¢_per_kWh_Summary_Results_D14], [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...], [tab_Cash_Flow_G12_AJ15[1, "G"], tab_Cash_Flow_G12_AJ15[1, "H"], tab_Cash_Flow...]
+	years_Inputs_Q8::Float64 = 25.0
+	# used in 1 statements, [¢_per_kWh_Cash_Flow_F13]
+	pcnt_Inputs_Q9::Float64 = 0.0
+	# used in 1 statements, [s_Cash_Flow_G72, tab_Cash_Flow_G12_AJ15[2, "G"], tab_Cash_Flow_G12_AJ15[2, "H...]
+	pcnt_Inputs_Q10::Float64 = 0.0
 end
 struct Tables
 	tab_Annual_Cash_Flows__and__Returns_M6_N6::DataFrame
@@ -609,10 +611,6 @@ end
 
 
 # Level 4
-# Used in 2 places: [StandardStatement(lhs = ¢_per_kWh_F12), GroupedStatement(StandardStatement(lhs = s_Cash_Flow_G72), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1:2, "G"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "H"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "I"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "J"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "K"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "L"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "M"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "N"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "O"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "P"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "Q"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "R"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "S"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "T"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "U"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "V"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "W"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "X"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "Y"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "Z"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AA"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AB"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AC"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AD"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AE"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AF"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AG"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AH"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AI"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AJ"]))]
-# =Inputs!Q9
-¢_per_kWh_F13 = inputs.pcnt_Q9 # Cash Flow F13
-@assert xl_compare(¢_per_kWh_F13, 0.0) # "Cash Flow!F13"
 # Used in 2 places: [StandardStatement(lhs = s_Cash_Flow_S204), FunctionStatement(lhs = s_Cash_Flow_R204)]
 tab_Cash_Flow_N205_N215[11, "N"] = xl_lookup(xl_max(tab_Cash_Flow_L205_M215[!, "M"]), tab_Cash_Flow_K205_K215[!, "K"], tab_Cash_Flow_J205_J215[!, "J"]) # Cash Flow N215 Row: 11
 @assert xl_compare(tab_Cash_Flow_N205_N215[11, "N"], 33.0) # "Cash Flow!N215"
@@ -624,88 +622,91 @@ end
 
 
 # Level 5
-# Used in 1 places: [GroupedStatement(StandardStatement(lhs = s_Cash_Flow_G72), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1:2, "G"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "H"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "I"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "J"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "K"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "L"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "M"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "N"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "O"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "P"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "Q"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "R"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "S"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "T"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "U"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "V"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "W"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "X"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "Y"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "Z"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AA"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AB"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AC"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AD"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AE"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AF"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AG"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AH"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AI"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AJ"]))]
-# =1-F13
-¢_per_kWh_F12 = 1.0 - ¢_per_kWh_F13 # Cash Flow F12
-@assert xl_compare(¢_per_kWh_F12, 1.0) # "Cash Flow!F12"
-# Used in 1 places: [GroupedStatement(StandardStatement(lhs = s_Cash_Flow_G72), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1:2, "G"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "H"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "I"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "J"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "K"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "L"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "M"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "N"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "O"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "P"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "Q"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "R"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "S"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "T"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "U"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "V"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "W"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "X"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "Y"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "Z"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AA"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AB"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AC"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AD"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AE"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AF"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AG"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AH"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AI"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AJ"]))]
+# Used in 2 places: [StandardStatement(lhs = ¢_per_kWh_Cash_Flow_F12), GroupedStatement(StandardStatement(lhs = s_Cash_Flow_G72), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "G"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "H"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "I"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "J"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "K"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "L"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "M"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "N"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "O"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "P"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "Q"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "R"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "S"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "T"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "U"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "V"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "W"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "X"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "Y"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "Z"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AA"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AB"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AC"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AD"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AE"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AF"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AG"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AH"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AI"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AJ"]))]
+# =Inputs!Q9
+¢_per_kWh_Cash_Flow_F13 = inputs.pcnt_Inputs_Q9 # Cash Flow F13
+@assert xl_compare(¢_per_kWh_Cash_Flow_F13, 0.0) # "Cash Flow!F13"
+# Used in 1 places: [GroupedStatement(StandardStatement(lhs = s_Cash_Flow_G72), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "G"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "H"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "I"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "J"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "K"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "L"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "M"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "N"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "O"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "P"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "Q"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "R"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "S"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "T"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "U"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "V"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "W"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "X"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "Y"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "Z"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AA"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AB"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AC"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AD"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AE"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AF"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AG"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AH"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AI"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AJ"]))]
 s_Cash_Flow_R204 = calculate_s_Cash_Flow_R204(tab_Cash_Flow_O205_O215, tab_Cash_Flow_N205_N215, tab_Cash_Flow_P205_Q215, tab_Cash_Flow_J205_J215, inputs.s_Cash_Flow_O216)
-# Used in 1 places: [GroupedStatement(StandardStatement(lhs = s_Cash_Flow_G72), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1:2, "G"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "H"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "I"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "J"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "K"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "L"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "M"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "N"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "O"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "P"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "Q"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "R"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "S"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "T"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "U"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "V"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "W"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "X"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "Y"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "Z"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AA"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AB"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AC"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AD"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AE"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AF"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AG"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AH"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AI"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AJ"]))]
+# Used in 1 places: [GroupedStatement(StandardStatement(lhs = s_Cash_Flow_G72), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "G"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "H"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "I"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "J"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "K"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "L"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "M"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "N"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "O"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "P"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "Q"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "R"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "S"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "T"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "U"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "V"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "W"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "X"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "Y"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "Z"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AA"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AB"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AC"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AD"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AE"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AF"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AG"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AH"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AI"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[2, "AJ"]))]
 # =LOOKUP(MAX($Q$205:$Q$215),$O$205:$O$215,$N$205:$N$215)
 s_Cash_Flow_S204 = xl_lookup(xl_max(tab_Cash_Flow_P205_Q215[!, "Q"]), tab_Cash_Flow_O205_O215[!, "O"], tab_Cash_Flow_N205_N215[!, "N"]) # Cash Flow S204
 @assert xl_compare(s_Cash_Flow_S204, 32.1) # "Cash Flow!S204"
 
 
 # Level 6
-# Used in 2 places: [GroupedStatement(TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "G"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "H"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "I"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "J"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "K"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "L"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "M"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "N"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "O"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "P"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "Q"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "R"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "S"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "T"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "U"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "V"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "W"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "X"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "Y"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "Z"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "AA"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "AB"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "AC"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "AD"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "AE"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "AF"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "AG"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "AH"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "AI"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "AJ"])), GroupedStatement(TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "H"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "I"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "J"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "K"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "L"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "M"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "N"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "O"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "P"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "Q"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "R"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "S"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "T"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "U"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "V"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "W"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "X"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "Y"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "Z"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "AA"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "AB"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "AC"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "AD"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "AE"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "AF"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "AG"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "AH"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "AI"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "AJ"]))]
+# Used in 1 places: [GroupedStatement(TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "G"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "H"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "I"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "J"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "K"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "L"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "M"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "N"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "O"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "P"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "Q"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "R"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "S"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "T"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "U"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "V"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "W"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "X"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "Y"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "Z"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "AA"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "AB"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "AC"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "AD"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "AE"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "AF"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "AG"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "AH"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "AI"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "AJ"]))]
+# =1-F13
+¢_per_kWh_Cash_Flow_F12 = 1.0 - ¢_per_kWh_Cash_Flow_F13 # Cash Flow F12
+@assert xl_compare(¢_per_kWh_Cash_Flow_F12, 1.0) # "Cash Flow!F12"
+# Used in 2 places: [GroupedStatement(TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "G"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "H"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "I"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "J"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "K"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "L"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "M"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "N"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "O"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "P"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "Q"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "R"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "S"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "T"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "U"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "V"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "W"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "X"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "Y"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "Z"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "AA"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "AB"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "AC"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "AD"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "AE"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "AF"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "AG"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "AH"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "AI"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "AJ"])), GroupedStatement(TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "G"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "H"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "I"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "J"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "K"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "L"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "M"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "N"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "O"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "P"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "Q"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "R"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "S"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "T"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "U"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "V"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "W"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "X"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "Y"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "Z"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "AA"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "AB"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "AC"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "AD"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "AE"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "AF"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "AG"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "AH"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "AI"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[1, "AJ"]))]
 # Group of 31 statements
 begin
 # =AVERAGE(R204:S204)
 s_Cash_Flow_G72 = xl_average([s_Cash_Flow_R204, s_Cash_Flow_S204]) # Cash Flow G72
 @assert xl_compare(s_Cash_Flow_G72, 32.05) # "Cash Flow!G72"
-# "Cash Flow!G12":"Cash Flow!G13"
-@. tab_Cash_Flow_G12_AJ15[1:2, "G"] = s_Cash_Flow_G72 * [¢_per_kWh_F12, ¢_per_kWh_F13]
-tab_Cash_Flow_G12_AJ15[2, "H"] = (xl_gt(inputs.s_Cash_Flow_H2, inputs.years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "G"] * (1.0 + inputs.pcnt_Q10)) # Cash Flow H13 Row: 2
+tab_Cash_Flow_G12_AJ15[2, "G"] = s_Cash_Flow_G72 * ¢_per_kWh_Cash_Flow_F13 # Cash Flow G13 Row: 2
+@assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "G"], 0.0) # "Cash Flow!G13"
+tab_Cash_Flow_G12_AJ15[2, "H"] = (xl_gt(inputs.s_Cash_Flow_H2, inputs.years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "G"] * (1.0 + inputs.pcnt_Inputs_Q10)) # Cash Flow H13 Row: 2
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "H"], 0.0) # "Cash Flow!H13"
-tab_Cash_Flow_G12_AJ15[2, "I"] = (xl_gt(inputs.s_Cash_Flow_I2, inputs.years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "H"] * (1.0 + inputs.pcnt_Q10)) # Cash Flow I13 Row: 2
+tab_Cash_Flow_G12_AJ15[2, "I"] = (xl_gt(inputs.s_Cash_Flow_I2, inputs.years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "H"] * (1.0 + inputs.pcnt_Inputs_Q10)) # Cash Flow I13 Row: 2
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "I"], 0.0) # "Cash Flow!I13"
-tab_Cash_Flow_G12_AJ15[2, "J"] = (xl_gt(inputs.s_Cash_Flow_J2, inputs.years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "I"] * (1.0 + inputs.pcnt_Q10)) # Cash Flow J13 Row: 2
+tab_Cash_Flow_G12_AJ15[2, "J"] = (xl_gt(inputs.s_Cash_Flow_J2, inputs.years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "I"] * (1.0 + inputs.pcnt_Inputs_Q10)) # Cash Flow J13 Row: 2
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "J"], 0.0) # "Cash Flow!J13"
-tab_Cash_Flow_G12_AJ15[2, "K"] = (xl_gt(inputs.s_Cash_Flow_K2, inputs.years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "J"] * (1.0 + inputs.pcnt_Q10)) # Cash Flow K13 Row: 2
+tab_Cash_Flow_G12_AJ15[2, "K"] = (xl_gt(inputs.s_Cash_Flow_K2, inputs.years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "J"] * (1.0 + inputs.pcnt_Inputs_Q10)) # Cash Flow K13 Row: 2
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "K"], 0.0) # "Cash Flow!K13"
-tab_Cash_Flow_G12_AJ15[2, "L"] = (xl_gt(inputs.s_Cash_Flow_L2, inputs.years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "K"] * (1.0 + inputs.pcnt_Q10)) # Cash Flow L13 Row: 2
+tab_Cash_Flow_G12_AJ15[2, "L"] = (xl_gt(inputs.s_Cash_Flow_L2, inputs.years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "K"] * (1.0 + inputs.pcnt_Inputs_Q10)) # Cash Flow L13 Row: 2
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "L"], 0.0) # "Cash Flow!L13"
-tab_Cash_Flow_G12_AJ15[2, "M"] = (xl_gt(inputs.s_Cash_Flow_M2, inputs.years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "L"] * (1.0 + inputs.pcnt_Q10)) # Cash Flow M13 Row: 2
+tab_Cash_Flow_G12_AJ15[2, "M"] = (xl_gt(inputs.s_Cash_Flow_M2, inputs.years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "L"] * (1.0 + inputs.pcnt_Inputs_Q10)) # Cash Flow M13 Row: 2
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "M"], 0.0) # "Cash Flow!M13"
-tab_Cash_Flow_G12_AJ15[2, "N"] = (xl_gt(inputs.s_Cash_Flow_N2, inputs.years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "M"] * (1.0 + inputs.pcnt_Q10)) # Cash Flow N13 Row: 2
+tab_Cash_Flow_G12_AJ15[2, "N"] = (xl_gt(inputs.s_Cash_Flow_N2, inputs.years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "M"] * (1.0 + inputs.pcnt_Inputs_Q10)) # Cash Flow N13 Row: 2
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "N"], 0.0) # "Cash Flow!N13"
-tab_Cash_Flow_G12_AJ15[2, "O"] = (xl_gt(inputs.s_Cash_Flow_O2, inputs.years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "N"] * (1.0 + inputs.pcnt_Q10)) # Cash Flow O13 Row: 2
+tab_Cash_Flow_G12_AJ15[2, "O"] = (xl_gt(inputs.s_Cash_Flow_O2, inputs.years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "N"] * (1.0 + inputs.pcnt_Inputs_Q10)) # Cash Flow O13 Row: 2
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "O"], 0.0) # "Cash Flow!O13"
-tab_Cash_Flow_G12_AJ15[2, "P"] = (xl_gt(inputs.s_Cash_Flow_P2, inputs.years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "O"] * (1.0 + inputs.pcnt_Q10)) # Cash Flow P13 Row: 2
+tab_Cash_Flow_G12_AJ15[2, "P"] = (xl_gt(inputs.s_Cash_Flow_P2, inputs.years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "O"] * (1.0 + inputs.pcnt_Inputs_Q10)) # Cash Flow P13 Row: 2
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "P"], 0.0) # "Cash Flow!P13"
-tab_Cash_Flow_G12_AJ15[2, "Q"] = (xl_gt(inputs.s_Cash_Flow_Q2, inputs.years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "P"] * (1.0 + inputs.pcnt_Q10)) # Cash Flow Q13 Row: 2
+tab_Cash_Flow_G12_AJ15[2, "Q"] = (xl_gt(inputs.s_Cash_Flow_Q2, inputs.years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "P"] * (1.0 + inputs.pcnt_Inputs_Q10)) # Cash Flow Q13 Row: 2
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "Q"], 0.0) # "Cash Flow!Q13"
-tab_Cash_Flow_G12_AJ15[2, "R"] = (xl_gt(inputs.s_Cash_Flow_R2, inputs.years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "Q"] * (1.0 + inputs.pcnt_Q10)) # Cash Flow R13 Row: 2
+tab_Cash_Flow_G12_AJ15[2, "R"] = (xl_gt(inputs.s_Cash_Flow_R2, inputs.years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "Q"] * (1.0 + inputs.pcnt_Inputs_Q10)) # Cash Flow R13 Row: 2
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "R"], 0.0) # "Cash Flow!R13"
-tab_Cash_Flow_G12_AJ15[2, "S"] = (xl_gt(inputs.s_Cash_Flow_S2, inputs.years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "R"] * (1.0 + inputs.pcnt_Q10)) # Cash Flow S13 Row: 2
+tab_Cash_Flow_G12_AJ15[2, "S"] = (xl_gt(inputs.s_Cash_Flow_S2, inputs.years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "R"] * (1.0 + inputs.pcnt_Inputs_Q10)) # Cash Flow S13 Row: 2
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "S"], 0.0) # "Cash Flow!S13"
-tab_Cash_Flow_G12_AJ15[2, "T"] = (xl_gt(inputs.s_Cash_Flow_T2, inputs.years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "S"] * (1.0 + inputs.pcnt_Q10)) # Cash Flow T13 Row: 2
+tab_Cash_Flow_G12_AJ15[2, "T"] = (xl_gt(inputs.s_Cash_Flow_T2, inputs.years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "S"] * (1.0 + inputs.pcnt_Inputs_Q10)) # Cash Flow T13 Row: 2
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "T"], 0.0) # "Cash Flow!T13"
-tab_Cash_Flow_G12_AJ15[2, "U"] = (xl_gt(inputs.s_Cash_Flow_U2, inputs.years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "T"] * (1.0 + inputs.pcnt_Q10)) # Cash Flow U13 Row: 2
+tab_Cash_Flow_G12_AJ15[2, "U"] = (xl_gt(inputs.s_Cash_Flow_U2, inputs.years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "T"] * (1.0 + inputs.pcnt_Inputs_Q10)) # Cash Flow U13 Row: 2
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "U"], 0.0) # "Cash Flow!U13"
-tab_Cash_Flow_G12_AJ15[2, "V"] = (xl_gt(inputs.s_Cash_Flow_V2, inputs.years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "U"] * (1.0 + inputs.pcnt_Q10)) # Cash Flow V13 Row: 2
+tab_Cash_Flow_G12_AJ15[2, "V"] = (xl_gt(inputs.s_Cash_Flow_V2, inputs.years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "U"] * (1.0 + inputs.pcnt_Inputs_Q10)) # Cash Flow V13 Row: 2
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "V"], 0.0) # "Cash Flow!V13"
-tab_Cash_Flow_G12_AJ15[2, "W"] = (xl_gt(inputs.s_Cash_Flow_W2, inputs.years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "V"] * (1.0 + inputs.pcnt_Q10)) # Cash Flow W13 Row: 2
+tab_Cash_Flow_G12_AJ15[2, "W"] = (xl_gt(inputs.s_Cash_Flow_W2, inputs.years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "V"] * (1.0 + inputs.pcnt_Inputs_Q10)) # Cash Flow W13 Row: 2
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "W"], 0.0) # "Cash Flow!W13"
-tab_Cash_Flow_G12_AJ15[2, "X"] = (xl_gt(inputs.s_Cash_Flow_X2, inputs.years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "W"] * (1.0 + inputs.pcnt_Q10)) # Cash Flow X13 Row: 2
+tab_Cash_Flow_G12_AJ15[2, "X"] = (xl_gt(inputs.s_Cash_Flow_X2, inputs.years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "W"] * (1.0 + inputs.pcnt_Inputs_Q10)) # Cash Flow X13 Row: 2
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "X"], 0.0) # "Cash Flow!X13"
-tab_Cash_Flow_G12_AJ15[2, "Y"] = (xl_gt(inputs.s_Cash_Flow_Y2, inputs.years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "X"] * (1.0 + inputs.pcnt_Q10)) # Cash Flow Y13 Row: 2
+tab_Cash_Flow_G12_AJ15[2, "Y"] = (xl_gt(inputs.s_Cash_Flow_Y2, inputs.years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "X"] * (1.0 + inputs.pcnt_Inputs_Q10)) # Cash Flow Y13 Row: 2
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "Y"], 0.0) # "Cash Flow!Y13"
-tab_Cash_Flow_G12_AJ15[2, "Z"] = (xl_gt(inputs.s_Cash_Flow_Z2, inputs.years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "Y"] * (1.0 + inputs.pcnt_Q10)) # Cash Flow Z13 Row: 2
+tab_Cash_Flow_G12_AJ15[2, "Z"] = (xl_gt(inputs.s_Cash_Flow_Z2, inputs.years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "Y"] * (1.0 + inputs.pcnt_Inputs_Q10)) # Cash Flow Z13 Row: 2
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "Z"], 0.0) # "Cash Flow!Z13"
-tab_Cash_Flow_G12_AJ15[2, "AA"] = (xl_gt(inputs.s_Cash_Flow_AA2, inputs.years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "Z"] * (1.0 + inputs.pcnt_Q10)) # Cash Flow AA13 Row: 2
+tab_Cash_Flow_G12_AJ15[2, "AA"] = (xl_gt(inputs.s_Cash_Flow_AA2, inputs.years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "Z"] * (1.0 + inputs.pcnt_Inputs_Q10)) # Cash Flow AA13 Row: 2
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "AA"], 0.0) # "Cash Flow!AA13"
-tab_Cash_Flow_G12_AJ15[2, "AB"] = (xl_gt(inputs.s_Cash_Flow_AB2, inputs.years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "AA"] * (1.0 + inputs.pcnt_Q10)) # Cash Flow AB13 Row: 2
+tab_Cash_Flow_G12_AJ15[2, "AB"] = (xl_gt(inputs.s_Cash_Flow_AB2, inputs.years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "AA"] * (1.0 + inputs.pcnt_Inputs_Q10)) # Cash Flow AB13 Row: 2
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "AB"], 0.0) # "Cash Flow!AB13"
-tab_Cash_Flow_G12_AJ15[2, "AC"] = (xl_gt(inputs.s_Cash_Flow_AC2, inputs.years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "AB"] * (1.0 + inputs.pcnt_Q10)) # Cash Flow AC13 Row: 2
+tab_Cash_Flow_G12_AJ15[2, "AC"] = (xl_gt(inputs.s_Cash_Flow_AC2, inputs.years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "AB"] * (1.0 + inputs.pcnt_Inputs_Q10)) # Cash Flow AC13 Row: 2
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "AC"], 0.0) # "Cash Flow!AC13"
-tab_Cash_Flow_G12_AJ15[2, "AD"] = (xl_gt(inputs.s_Cash_Flow_AD2, inputs.years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "AC"] * (1.0 + inputs.pcnt_Q10)) # Cash Flow AD13 Row: 2
+tab_Cash_Flow_G12_AJ15[2, "AD"] = (xl_gt(inputs.s_Cash_Flow_AD2, inputs.years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "AC"] * (1.0 + inputs.pcnt_Inputs_Q10)) # Cash Flow AD13 Row: 2
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "AD"], 0.0) # "Cash Flow!AD13"
-tab_Cash_Flow_G12_AJ15[2, "AE"] = (xl_gt(inputs.s_Cash_Flow_AE2, inputs.years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "AD"] * (1.0 + inputs.pcnt_Q10)) # Cash Flow AE13 Row: 2
+tab_Cash_Flow_G12_AJ15[2, "AE"] = (xl_gt(inputs.s_Cash_Flow_AE2, inputs.years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "AD"] * (1.0 + inputs.pcnt_Inputs_Q10)) # Cash Flow AE13 Row: 2
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "AE"], 0.0) # "Cash Flow!AE13"
-tab_Cash_Flow_G12_AJ15[2, "AF"] = (xl_gt(inputs.s_Cash_Flow_AF2, inputs.years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "AE"] * (1.0 + inputs.pcnt_Q10)) # Cash Flow AF13 Row: 2
+tab_Cash_Flow_G12_AJ15[2, "AF"] = (xl_gt(inputs.s_Cash_Flow_AF2, inputs.years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "AE"] * (1.0 + inputs.pcnt_Inputs_Q10)) # Cash Flow AF13 Row: 2
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "AF"], 0.0) # "Cash Flow!AF13"
-tab_Cash_Flow_G12_AJ15[2, "AG"] = (xl_gt(inputs.s_Cash_Flow_AG2, inputs.years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "AF"] * (1.0 + inputs.pcnt_Q10)) # Cash Flow AG13 Row: 2
+tab_Cash_Flow_G12_AJ15[2, "AG"] = (xl_gt(inputs.s_Cash_Flow_AG2, inputs.years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "AF"] * (1.0 + inputs.pcnt_Inputs_Q10)) # Cash Flow AG13 Row: 2
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "AG"], 0.0) # "Cash Flow!AG13"
-tab_Cash_Flow_G12_AJ15[2, "AH"] = (xl_gt(inputs.s_Cash_Flow_AH2, inputs.years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "AG"] * (1.0 + inputs.pcnt_Q10)) # Cash Flow AH13 Row: 2
+tab_Cash_Flow_G12_AJ15[2, "AH"] = (xl_gt(inputs.s_Cash_Flow_AH2, inputs.years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "AG"] * (1.0 + inputs.pcnt_Inputs_Q10)) # Cash Flow AH13 Row: 2
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "AH"], 0.0) # "Cash Flow!AH13"
-tab_Cash_Flow_G12_AJ15[2, "AI"] = (xl_gt(inputs.s_Cash_Flow_AI2, inputs.years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "AH"] * (1.0 + inputs.pcnt_Q10)) # Cash Flow AI13 Row: 2
+tab_Cash_Flow_G12_AJ15[2, "AI"] = (xl_gt(inputs.s_Cash_Flow_AI2, inputs.years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "AH"] * (1.0 + inputs.pcnt_Inputs_Q10)) # Cash Flow AI13 Row: 2
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "AI"], 0.0) # "Cash Flow!AI13"
-tab_Cash_Flow_G12_AJ15[2, "AJ"] = (xl_gt(inputs.s_Cash_Flow_AJ2, inputs.years_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "AI"] * (1.0 + inputs.pcnt_Q10)) # Cash Flow AJ13 Row: 2
+tab_Cash_Flow_G12_AJ15[2, "AJ"] = (xl_gt(inputs.s_Cash_Flow_AJ2, inputs.years_Inputs_Q8) ? 0.0 : tab_Cash_Flow_G12_AJ15[2, "AI"] * (1.0 + inputs.pcnt_Inputs_Q10)) # Cash Flow AJ13 Row: 2
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "AJ"], 0.0) # "Cash Flow!AJ13"
 end
 @assert xl_compare(s_Cash_Flow_G72, 32.05) # "Cash Flow!G72"
-@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "G"], 32.05) # "Cash Flow!G12"
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "G"], 0.0) # "Cash Flow!G13"
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "H"], 0.0) # "Cash Flow!H13"
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[2, "I"], 0.0) # "Cash Flow!I13"
@@ -741,7 +742,8 @@ end
 
 # Level 7
 # Used in 1 places: [GroupedStatement(TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "G"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "H"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "I"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "J"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "K"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "L"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "M"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "N"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "O"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "P"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "Q"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "R"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "S"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "T"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "U"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "V"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "W"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "X"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "Y"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "Z"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "AA"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "AB"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "AC"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "AD"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "AE"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "AF"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "AG"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "AH"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "AI"]), TableStatement(lhs = tab_Cash_Flow_G12_AJ15[3, "AJ"]))]
-group_calculate_Cash_Flow_AJ12(inputs.s_Cash_Flow_H2, inputs.years_Q8, tab_Cash_Flow_G12_AJ15, inputs.s_Cash_Flow_I2, inputs.s_Cash_Flow_J2, inputs.s_Cash_Flow_K2, inputs.s_Cash_Flow_L2, inputs.s_Cash_Flow_M2, inputs.s_Cash_Flow_N2, inputs.s_Cash_Flow_O2, inputs.s_Cash_Flow_P2, inputs.s_Cash_Flow_Q2, inputs.s_Cash_Flow_R2, inputs.s_Cash_Flow_S2, inputs.s_Cash_Flow_T2, inputs.s_Cash_Flow_U2, inputs.s_Cash_Flow_V2, inputs.s_Cash_Flow_W2, inputs.s_Cash_Flow_X2, inputs.s_Cash_Flow_Y2, inputs.s_Cash_Flow_Z2, inputs.s_Cash_Flow_AA2, inputs.s_Cash_Flow_AB2, inputs.s_Cash_Flow_AC2, inputs.s_Cash_Flow_AD2, inputs.s_Cash_Flow_AE2, inputs.s_Cash_Flow_AF2, inputs.s_Cash_Flow_AG2, inputs.s_Cash_Flow_AH2, inputs.s_Cash_Flow_AI2, inputs.s_Cash_Flow_AJ2)
+group_calculate_Cash_Flow_AJ12(s_Cash_Flow_G72, ¢_per_kWh_Cash_Flow_F12, inputs.s_Cash_Flow_H2, inputs.years_Inputs_Q8, tab_Cash_Flow_G12_AJ15, inputs.s_Cash_Flow_I2, inputs.s_Cash_Flow_J2, inputs.s_Cash_Flow_K2, inputs.s_Cash_Flow_L2, inputs.s_Cash_Flow_M2, inputs.s_Cash_Flow_N2, inputs.s_Cash_Flow_O2, inputs.s_Cash_Flow_P2, inputs.s_Cash_Flow_Q2, inputs.s_Cash_Flow_R2, inputs.s_Cash_Flow_S2, inputs.s_Cash_Flow_T2, inputs.s_Cash_Flow_U2, inputs.s_Cash_Flow_V2, inputs.s_Cash_Flow_W2, inputs.s_Cash_Flow_X2, inputs.s_Cash_Flow_Y2, inputs.s_Cash_Flow_Z2, inputs.s_Cash_Flow_AA2, inputs.s_Cash_Flow_AB2, inputs.s_Cash_Flow_AC2, inputs.s_Cash_Flow_AD2, inputs.s_Cash_Flow_AE2, inputs.s_Cash_Flow_AF2, inputs.s_Cash_Flow_AG2, inputs.s_Cash_Flow_AH2, inputs.s_Cash_Flow_AI2, inputs.s_Cash_Flow_AJ2)
+@assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "G"], 32.05) # "Cash Flow!G12"
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "H"], 32.05) # "Cash Flow!H12"
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "I"], 32.05) # "Cash Flow!I12"
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[1, "J"], 32.05) # "Cash Flow!J12"
@@ -775,7 +777,7 @@ group_calculate_Cash_Flow_AJ12(inputs.s_Cash_Flow_H2, inputs.years_Q8, tab_Cash_
 
 
 # Level 8
-# Used in 1 places: [StandardStatement(lhs = ¢_per_kWh_D14)]
+# Used in 1 places: [StandardStatement(lhs = ¢_per_kWh_Summary_Results_D14)]
 group_calculate_Cash_Flow_AJ14(tab_Cash_Flow_G12_AJ15)
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[3, "G"], 32.05) # "Cash Flow!G14"
 @assert xl_compare(tab_Cash_Flow_G12_AJ15[3, "H"], 32.05) # "Cash Flow!H14"
@@ -813,13 +815,13 @@ group_calculate_Cash_Flow_AJ14(tab_Cash_Flow_G12_AJ15)
 # Level 9
 # Used in 1 places: [OutputStatement]
 # =-PMT(Inputs!$G$62,Inputs!$Q$8,NPV(Inputs!$G$62,'Cash Flow'!G14:AJ14))
-¢_per_kWh_D14 = (-1 * xl_pmt(inputs.pcnt_G62, inputs.years_Q8, xl_npv(inputs.pcnt_G62, tab_Cash_Flow_G12_AJ15[3:3, Between("G", "AJ")]))) # Summary Results D14
-@assert xl_compare(¢_per_kWh_D14, 32.04999999999998) # "Summary Results!D14"
+¢_per_kWh_Summary_Results_D14 = (-1 * xl_pmt(inputs.pcnt_Inputs_G62, inputs.years_Inputs_Q8, xl_npv(inputs.pcnt_Inputs_G62, tab_Cash_Flow_G12_AJ15[3:3, Between("G", "AJ")]))) # Summary Results D14
+@assert xl_compare(¢_per_kWh_Summary_Results_D14, 32.04999999999998) # "Summary Results!D14"
 
 
 # Level 10
 Outputs(
-    ¢_per_kWh_D14    
+    ¢_per_kWh_Summary_Results_D14    
 )
 
 
