@@ -210,10 +210,10 @@ end
 
 missing_to(value, default = 0.0) = ismissing(value) ? default : value
 
-function eval(value, ctx::ExcelContext)
+function eval_expr(value, ctx::ExcelContext)
     value
 end
-function eval(expr::ExcelExpr, ctx::ExcelContext)
+function eval_expr(expr::ExcelExpr, ctx::ExcelContext)
     missing_to(exec(expr, ctx))
 end
 function exec(expr::ExcelExpr, ctx::ExcelContext)
@@ -237,7 +237,7 @@ function exec(expr::ExcelExpr, ctx::ExcelContext)
         ExcelExpr(:range, [lhs, rhs]) => rangetomatrix(ctx, exec_to_cell(lhs), exec_to_cell(rhs))
         ExcelExpr(:sheet_ref, [sheet_name, ref]) => exec(ref, with_current_sheet(ctx, sheet_name))
         ExcelExpr(:named_range, [name]) => exec(get_key_value(ctx, name), ctx)
-        ExcelExpr(:call, ["IF", args...]) => xl_logical(eval(args[1], ctx)) ? exec(args[2], ctx) : exec(args[3], ctx)
+        ExcelExpr(:call, ["IF", args...]) => xl_logical(eval_expr(args[1], ctx)) ? exec(args[2], ctx) : exec(args[3], ctx)
         ExcelExpr(:call, [fn_name, args...]) => eval_function(ctx, fn_name, args)
     end
     # println("$(expr) = $(result)")
