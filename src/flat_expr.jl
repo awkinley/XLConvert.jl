@@ -117,3 +117,40 @@ function offset(flat_expr::FlatExpr, rows::Int, cols::Int)
 
     new_expr
 end
+
+
+"""
+    insert_expr_front!(expr::FlatExpr, new_part::ExcelExpr)
+
+
+Insert a new part at the front of a FlatExpr, then does the required FlatIdx renumbering.
+
+The inserted argument also has renumbering applied, so it can reference existing parts using their pre-insertion index.
+"""
+function insert_expr_front!(expr::FlatExpr, new_part::ExcelExpr)
+    pushfirst!(expr.parts, new_part)
+
+    for part in expr.parts
+        for i in eachindex(part.args)
+            arg = part.args[i]
+            if arg isa FlatIdx
+                part.args[i] = FlatIdx(arg.i + 1)
+            end
+        end
+    end
+
+    expr
+end
+
+
+"""
+    insert_expr_front(expr::FlatExpr, new_part::ExcelExpr)
+
+
+Insert a new part at the front of a FlatExpr, then does the required FlatIdx renumbering.
+
+The inserted argument also has renumbering applied, so it can reference existing parts using their pre-insertion index.
+"""
+function insert_expr_front(expr::FlatExpr, new_part::ExcelExpr)
+    insert_expr_front!(deepcopy(expr), new_part)
+end

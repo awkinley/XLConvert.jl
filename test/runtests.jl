@@ -42,6 +42,13 @@ function test_to_expr()
 end
 
 
+function test_structured_reference()
+
+    @show toexpr("Table1[[#Headers],[array]]")
+    @test toexpr("Table1[[#Headers],[array]]").head == :structured_reference
+
+end
+
 function test_get_expr_deps()
 
     sheet = "Sheet 1"

@@ -10,10 +10,19 @@ using Dates
 using DataFrames
 using EzXML: EzXML
 
+macro display(val)
+    return :(
+        println($(sprint(Base.show_unquoted, val)*" = "), "\n",
+        repr("text/plain", begin
+            local value = $(esc(val))
+        end)))
+end
+
 export CellDependency,
     MissingCell,
     AbstractHandler,
     ExcelExpr,
+    FlatExpr,
     ExcelTable,
     CellTypes,
     AbstractStatement,
@@ -52,6 +61,11 @@ export CellDependency,
     startrow,
     endrow,
     getname,
+    @display,
+    find_tables,
+    find_tables!,
+    get_statements,
+    export_julia,
     xl_sum,
     xl_eq,
     xl_lt,
@@ -74,7 +88,9 @@ export CellDependency,
     xl_npv,
     xl_compare,
     xl_average,
-    xl_iferror
+    xl_iferror,
+    xl_convert,
+    xl_isnumber
 
 
 
@@ -88,6 +104,7 @@ include("cell_dependency.jl")
 include("excel_table.jl")
 include("excel_workbook.jl")
 include("export_julia.jl")
+include("common_subexpr_elim.jl")
 include("statement.jl")
 include("workbook_subset.jl")
 include("variable_naming.jl")
@@ -99,6 +116,8 @@ include("transforms/if_toggle.jl")
 include("transforms/round_if.jl")
 include("transforms/table_broadcast.jl")
 include("transforms/group_statements.jl")
+
+include("high_level_api.jl")
 
 
 end # module XLConvert

@@ -1,6 +1,6 @@
 
 using AutoHashEquals
-@auto_hash_equals struct ExcelTable
+struct ExcelTable
     sheet_name::String
     table_name::String
     top_left::String
@@ -34,6 +34,13 @@ function ExcelTable(sheet_name::String,
 
 end
 
+function Base.:(==)(a::ExcelTable, b::ExcelTable)
+    a.sheet_name == b.sheet_name && a.top_left == b.top_left && a.bottom_right == b.bottom_right
+end
+
+function Base.hash(a::ExcelTable)
+    hash((a.sheet_name, a.top_left, a.bottom_right))
+end
 # ExcelTable = ExcelTable5
 
 getname(table::ExcelTable) = "tab_$(normalize_var_name(table.sheet_name))_$(normalize_var_name(table.table_name))"

@@ -14,11 +14,20 @@ struct FormulaCell
     expr::Union{FlatExpr, ExcelExpr, Float64, Int64, String, Missing}
 end
 
+struct SpillCell
+    cell::CellDependency
+    expr::Union{FlatExpr, ExcelExpr, Float64, Int64, String, Missing}
+end
+
 # FormulaCell = FormulaCell2
 
-CellTypes = Union{ValueCell, FormulaCell}
+CellTypes = Union{ValueCell, FormulaCell, SpillCell}
 
 function get_expr(cell::FormulaCell)
+    cell.expr
+end
+
+function get_expr(cell::SpillCell)
     cell.expr
 end
 
@@ -96,6 +105,7 @@ function convert_cell(sheet, sheet_name, cell::XLSX.Cell)
             expr = toexpr(cell.formula.formula)
             lower_sheet_names!(expr, sheet_name)
             FormulaCell(cell, convert_to_flat_expr(expr))
+            # FormulaCell(cell, expr)
         catch e
             println("Failed to parse cell formula")
             println(cell.formula.formula)
@@ -123,6 +133,8 @@ function get_cell_dict(xl)
     cell_dict = Dict{CellDependency, CellTypes}()
 
     for sheet_name in XLSX.sheetnames(xl)
+        println("Parsing worksheet $(sheet_name)")
+
         sheet = xl[sheet_name]
         all_cells = filter(!isempty, get_all_cells(sheet))
 
@@ -176,7 +188,10 @@ function get_all_dependencies(cell_dict::Dict{CellDependency, CellTypes}, key_va
             catch e
                 println("Error getting cell dependencies for cell $cell")
                 # @show cell
-                @show content
+                # @show content
+                @show content.cell.formula
+                println("Expr:")
+                show(stdout, "text/plain", content.expr)
                 @show e
                 # throw(e)
             end
@@ -250,12 +265,31 @@ function parse_workbook(filepath::AbstractString)
             expr = toexpr(string(p[2]))
             lower_sheet_names!(expr, "")
             parsed_key_values[p[1]] = convert_to_flat_expr(expr)
+            # parsed_key_values[p[1]] = expr
         catch e
             println("Failed to parse named range formula")
             println(p[1] * ": " * string(p[2]))
             @show e
         end
     end
+
+
+    for (key, value) in XLSX.get_workbook(xf).worksheet_names
+        name = key[2]
+        try
+            expr = toexpr(string(value))
+            lower_sheet_names!(expr, "")
+            parsed_key_values[name] = convert_to_flat_expr(expr)
+            # parsed_key_values[p[1]] = expr
+        catch e
+            println("Failed to parse named range formula")
+            println(p[1] * ": " * string(p[2]))
+            @show e
+        end
+    end
+
+
+
     # parsed_key_values = Dict((p[1] => lower_sheet_names(toexpr(string(p[2])), "")) for p in XLSX.get_workbook(xf).workbook_names)
     # @show keys(XLSX.get_workbook(xf).workbook_names)
 

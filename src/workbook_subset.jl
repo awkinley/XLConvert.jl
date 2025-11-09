@@ -1,7 +1,7 @@
 struct WorkbookSubset
     wb::ExcelWorkbook
     output_cells::Vector{CellDependency}
-    node_nums::Dict{CellDependency,Int}
+    node_nums::Dict{CellDependency, Int}
     used_nodes::Vector{Int64}
     graph::Graphs.SimpleDiGraph{Int64}
 end
@@ -10,6 +10,11 @@ end
 
 function get_workbook_subset(workbook::ExcelWorkbook, output_cells::Vector{CellDependency})
     all_referenced_nodes = get_all_referenced_cells(workbook)
+    for cell in output_cells
+        if cell ∉ all_referenced_nodes
+            push!(all_referenced_nodes, cell)
+        end
+    end
 
     # node_nums = Dict([n => i for (i, n) in enumerate(all_referenced_nodes)])
     node_nums = Dict{CellDependency, Int}(n => i for (i, n) in enumerate(all_referenced_nodes))
@@ -43,7 +48,7 @@ function get_workbook_subset(workbook::ExcelWorkbook, output_cells::Vector{CellD
     for target in output_cells
         target_node_num = node_nums[target]
 
-        parents = bfs_parents(graph, target_node_num, dir=:out)
+        parents = bfs_parents(graph, target_node_num, dir = :out)
         # @show parents
         @. target_used_nodes |= parents > 0
 

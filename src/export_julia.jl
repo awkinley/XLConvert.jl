@@ -16,8 +16,14 @@ function getdatatype(ws::XLSX.Worksheet, cell::XLSX.Cell)
         return String
     elseif (isempty(cell.datatype) || cell.datatype == "n")
         if !isempty(cell.style) && XLSX.styles_is_datetime(ws, cell.style)
-            # datetime
-            return Dates.Date
+
+            if XLSX.getdata(ws, cell) isa Dates.Date
+                return Dates.Date
+            else
+                return Float64
+            end
+            # # datetime
+            # return Dates.Date
         else
             # float
             return Float64
@@ -268,6 +274,9 @@ function xl_call_to_julia(fn_name, args)
         "COUNTA" => "xl_counta" * params
         "NPV" => "xl_npv" * params
         "ISBLANK" => "ismissing" * params
+        "ISNUMBER" => "xl_isnumber" * params
+        "TRANSPOSE" => "Matrix" * params * "'"
+        "CONVERT" => "xl_convert" * params
         fn_name => begin
             println("Function $fn_name not handled!")
             "xl_" * lowercase(fn_name) * params
@@ -316,6 +325,7 @@ function handle(::EverythingElseHandler, expr::ExcelExpr, exporter::JuliaExporte
     @match expr begin
         ExcelExpr(:func_param, [param_num]) => "param_$param_num"
         ExcelExpr(:func_param, [param_num, _type]) => "param_$param_num"
+        ExcelExpr(:spill_ref, [row, col, arr]) => "($(func(arr)))[$row, $col]"
         ExcelExpr(:cell_ref, [cell, sheet]) => exporter.var_names[CellDependency(sheet, cell)]
         ExcelExpr(:named_range, [name]) => convert(exporter, get(exporter.named_values, name, "undef_var_$name"), ctx)
         ExcelExpr(:call, ["IF", cond, t, f]) => begin
@@ -359,6 +369,7 @@ function handle(::EverythingElseHandler, expr::ExcelExpr, exporter::JuliaExporte
         ExcelExpr(:call, [fn_name, args...]) => xl_call_to_julia(fn_name, map(func, args))
         ExcelExpr(:broadcast_protect, [expr]) => "($(func(expr)),)"
         ExcelExpr(:cols, [sheet, columns]) => "columns($(repr(sheet)), $(repr(columns)))"
+        ExcelExpr(:array, args) => "[" * join(map(func, args), ",") * "]"
         _ => missing
     end
 end
@@ -397,6 +408,8 @@ function convert(exporter::JuliaExporter, expr, ctx::JlExporterCtx)
         "\"" * jl_str * "\""
     elseif expr isa Int
         repr(Float64(expr))
+    elseif expr isa Dates.Time
+        repr(expr.instant.value)
     else
         repr(expr)
     end

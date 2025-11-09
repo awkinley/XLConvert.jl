@@ -69,6 +69,25 @@ function get_name_to_left_no_sheet(cell_dependency::CellDependency, xf::XLSX.XLS
     end
 end
 
+function get_single_cell_ref(expr)
+    missing
+end
+function get_single_cell_ref(expr::ExcelExpr)
+    @match expr begin
+        ExcelExpr(:sheet_ref, [sheet_name, ExcelExpr(:cell_ref, [cell])]) => CellDependency(sheet_name, cell)
+        ExcelExpr(:cell_ref, [cell, sheet_name]) => CellDependency(sheet_name, cell)
+        _ => missing
+    end
+end
+
+function get_single_cell_ref(expr::FlatExpr)
+    @match expr.parts begin
+        [ExcelExpr(:sheet_ref, [sheet_name, FlatIdx(2)]), ExcelExpr(:cell_ref, [cell, sheet_name])] => CellDependency(sheet_name, cell)
+        [ExcelExpr(:cell_ref, [cell, sheet_name])] => CellDependency(sheet_name, cell)
+        _ => missing
+    end
+end
+
 function make_var_names_map(cell_dependencies::Vector{CellDependency}, wb::ExcelWorkbook)
     xf = wb.xf
     workbook = XLSX.get_workbook(xf)
@@ -77,10 +96,7 @@ function make_var_names_map(cell_dependencies::Vector{CellDependency}, wb::Excel
     named_values = wb.key_values
     named_cells = Dict()
     for (name, expr) in named_values
-        referenced_cell = @match expr begin
-            ExcelExpr(:sheet_ref, [sheet_name, ExcelExpr(:cell_ref, [cell])]) => CellDependency(sheet_name, cell)
-            _ => missing
-        end
+        referenced_cell = get_single_cell_ref(expr)
         if !ismissing(referenced_cell)
             named_cells[referenced_cell] = name
         end

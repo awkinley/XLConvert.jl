@@ -279,7 +279,7 @@ function export_looped(exporter::JuliaExporter, wb::ExcelWorkbook, statements)
             table, row_idx, col_idx, row_fixed, col_fixed = param_expr.args
             row_str = make_loop_idx_str(row_idx, row_offset, row_fixed)
             col_str = make_loop_idx_str(col_idx, col_offset, col_fixed)
-            @show col_idx col_offset, col_fixed
+            # @show col_idx col_offset, col_fixed
             "$(getname(table))[$row_str, $col_str]"
         else
             throw("Tried to get param_str for param_num $param_num, but it wasn't a changing param")
@@ -287,8 +287,8 @@ function export_looped(exporter::JuliaExporter, wb::ExcelWorkbook, statements)
     end
 
     fixed_params_dict = Dict(fixed_params .=> map(v -> v[1], param_sets[fixed_params]))
-    println("Inserting fixed params")
-    @show fixed_params_dict
+    # println("Inserting fixed params")
+    # @show fixed_params_dict
 
     # println("Original expr")
     # show(stdout, "text/plain", statements[1].rhs_expr)
@@ -351,7 +351,7 @@ function export_with_for_loops(exporter::JuliaExporter, wb::ExcelWorkbook, state
             # println("functionalized[1]")
             # show(stdout, "text/plain", functionalized[1][1])
             # println(functionalized[1][2])
-            println("$name: couldn't for loop at i = $i because $(can_loop.reason)")
+            # println("$name: couldn't for loop at i = $i because $(can_loop.reason)")
             # throw(can_loop.reason)
             push!(can_loop_ranges, last_idx:(i-1))
             last_idx = i
@@ -574,7 +574,6 @@ function export_statement(exporter::JuliaExporter, wb::ExcelWorkbook, statement:
         begin
         $middle_lines\
         end
-        $(assert_lines)
         """
     else
         # needed_vars = get_cell_deps(statement)

@@ -19,6 +19,7 @@ using Automa
     VERTICAL_RANGE
     NUMBER
     STRING_LITERAL
+    SR_COLUMN
     SPACE
     NAMED_RANGE
     OTHER
@@ -55,7 +56,7 @@ function Lexer(str::AbstractString)
     Lexer(base_string, idx)
 end
 
-const single_char_toks::Vector{Char} = ['+', '-', '*', '/', '^', '(', ')', ',', '%', '&', ':', '=']
+const single_char_toks::Vector{Char} = ['+', '-', '*', '/', '^', '(', ')', ',', '%', '&', ':', '=', '\'', '{', '}', '[', ']']
 
 function define_tokenizer()
 
@@ -75,7 +76,8 @@ function define_tokenizer()
         STRING_LITERAL => re"\"([^\"]|\"\")*\"",
         NAMED_RANGE_PREFIXED => re"(TRUE|FALSE|([A-Z]+[0-9]+))[A-Za-z0-9\\_]+",
         # (space, SPACE),
-        NAMED_RANGE => re"[A-Za-z_\\][A-Za-z0-9\\_]*",
+        NAMED_RANGE => re"[A-Za-z_\\][A-Za-z0-9\\_]*" | re"_xlpm\.[A-Za-z0-9]+" | re"#Headers" | re"#Data" | re"#All",
+        SR_COLUMN => re"\[[A-Za-z0-9\\_#]+\]",
         SPACE => re" |\n|\t",
     ]
 
@@ -122,11 +124,15 @@ function tokenize(lexer::Lexer; dbg = false)
             if start_idx > 20
                 end_idx = min(length(current_str), start_idx + tok_length + 20)
                 println(current_str[(start_idx-20):end_idx])
-                println(" "^20 * "^" * tok_length)
+                println(" "^20 * "^" ^ tok_length)
             else
                 end_idx = min(length(current_str), start_idx + tok_length + 20)
                 println(current_str[begin:end_idx])
                 println(" "^start_idx * "^"^tok_length)
+            end
+            println("Tokens so far:")
+            for t in tokens
+                println("\t", t)
             end
             throw("Error during tokenization")
         end
@@ -200,15 +206,63 @@ function cellname(parser::Parser)
     ExcelExpr(:cell_ref, val(t))
 end
 
+function structured_reference_col(parser::Parser)
+
+    col_name = accept!(parser, SR_COLUMN)
+    if !isnothing(col_name)
+        return val(col_name)
+    end
+
+    t = accept_other!(parser, "[")
+    isnothing(t) && return nothing
+
+    col_name = accept!(parser, NAMED_RANGE)
+
+    if isnothing(col_name)
+        throw("Tries to parse a structured reference column, but couldn't find the column name.")
+    end
+
+    t = accept_other!(parser, "]")
+    if isnothing(col_name)
+        throw("Tries to parse a structured reference column, but there was no ending bracket.")
+    end
+
+    return val(col_name)
+end
+
+
 function named_range(parser::Parser)
     t = accept!(parser, NAMED_RANGE_PREFIXED)
-    if !isnothing(t)
-        return ExcelExpr(:named_range, val(t))
+    if isnothing(t)
+        t = accept!(parser, NAMED_RANGE)
+        isnothing(t) && return nothing
     end
-    t = accept!(parser, NAMED_RANGE)
-    if !isnothing(t)
-        return ExcelExpr(:named_range, val(t))
+    name = val(t)
+
+    # A named range might actually be a structured reference
+    t = accept_other!(parser, "[")
+    if isnothing(t)
+        return ExcelExpr(:named_range, name)
     end
+
+
+    column = structured_reference_col(parser)
+
+    t = accept_other_any!(parser, [",", ":", "]"])
+    if isnothing(t)
+        @show name column t
+        @show parser.tokens parser.idx
+        throw("Structured reference failed to find any follow up token?")
+    end
+    if val(t) == "]"
+        return ExcelExpr(:structured_reference, Any[name, column])
+    elseif val(t) == ","
+        row = structured_reference_col(parser)
+        t = accept_other!(parser, "]")
+        isnothing(t) && throw("Failed to find closing bracket when parsing structured reference")
+        return ExcelExpr(:structured_reference, Any[name, column, row])
+    end
+
 
     nothing
 end
@@ -304,6 +358,33 @@ function paren(parser::Parser)
     inner
 end
 
+function array(parser::Parser)
+    t = accept_other!(parser, "{")
+    isnothing(t) && return nothing
+
+    right_brace = accept_other!(parser, "}")
+    if !isnothing(right_brace)
+        return ExcelExpr(:array, [])
+    end
+
+    args = Any[]
+
+    while true
+        e = binop_formula(parser)
+        if isnothing(e)
+            e = missing
+        end
+        push!(args, e)
+
+        right_brace = accept_other!(parser, "}")
+        if !isnothing(right_brace)
+            return ExcelExpr(:array, args)
+        end
+
+        accept_other!(parser, ",")
+    end
+end
+
 function sheet_prefix(parser::Parser)
     t = accept!(parser, UNQUOTED_SHEET)
     if !isnothing(t)
@@ -362,6 +443,8 @@ function formula(parser::Parser)
     e = constant(parser)
     !isnothing(e) && return e
     e = paren(parser)
+    !isnothing(e) && return e
+    e = array(parser)
     !isnothing(e) && return e
     e = function_call(parser)
     !isnothing(e) && return e

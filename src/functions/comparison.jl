@@ -4,6 +4,8 @@ xl_eq(a::String, ::Missing) = a == ""
 xl_eq(a::Bool, b::Bool) = a == b
 xl_eq(::Bool, ::Number) = false
 xl_eq(::Number, ::Bool) = false
+xl_eq(::Missing, b::Number) = b == 0
+xl_eq(a::Number, ::Missing) = a == 0
 
 xl_gt(a, b) = a > b
 xl_gt(a::Bool, b::Bool) = a > b

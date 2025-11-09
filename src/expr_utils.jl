@@ -6,22 +6,28 @@ end
 function get_expr_dependencies(expr::FlatExpr, key_values::Dict)
     deps = Vector{CellDependency}()
     handled = Set{Int}()
+    # @display expr
     for (i, part) in enumerate(expr.parts)
         i in handled && continue
+        # @show part
 
         @match part begin
             ExcelExpr(:cell_ref, [cell, sheet]) => push!(deps, CellDependency(sheet, cell))
             # ExcelExpr(:sheet_ref, (sheet_name, ref)) => get_expr_dependencies(ref, key_values)
             ExcelExpr(:named_range, [name]) => append!(deps, get_expr_dependencies(key_values[name], key_values))
+            ExcelExpr(:structured_reference, args) => begin
+                throw("Don't know how to handle structured references!")
+            end
             ExcelExpr(:range, [FlatIdx(lhs_i), FlatIdx(rhs_i)]) => begin
                 lhs_expr = expr.parts[lhs_i]
                 rhs_expr = expr.parts[rhs_i]
                 if !((lhs_expr.head == :cell_ref) && (rhs_expr.head == :cell_ref))
-                    throw("Don't know how to get dependencies for $(expr)")
+                    # throw("Don't know how to get dependencies because of a range expression without cell refs. i = $i. lhs_expr = $(lhs_expr.head), rhs_expr = $(rhs_expr.head)")
+                    continue
                 end
                 sheet = lhs_expr.args[2]
                 if (sheet != rhs_expr.args[2])
-                    throw("Don't know how to get dependencies for $(expr)")
+                    throw("Don't know how to get dependencies because of a range expression that doesn't share a cell. i = $i")
                 end
 
                 lhs = lhs_expr.args[1]
@@ -132,7 +138,8 @@ function insert_table_refs(expr::FlatExpr, tables)
                 lhs_expr = new_expr.parts[lhs_i]
                 rhs_expr = new_expr.parts[rhs_i]
                 if !((lhs_expr.head == :cell_ref) && (rhs_expr.head == :cell_ref))
-                    throw("Don't know how to get dependencies for $(expr)")
+                    continue
+                    # throw("Don't know how to get dependencies for $(expr)")
                 end
                 sheet = lhs_expr.args[2]
                 if (sheet != rhs_expr.args[2])

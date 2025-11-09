@@ -338,11 +338,16 @@ end
 
 function DefTable(xf::XLSX.XLSXFile, sheet_name, table_name, top_left, bottom_right, column_names_range, row_names_range)
     column_names = missing
+
+    startcol = parse_cell(top_left)[1]
+    endcol = parse_cell(bottom_right)[1]
     if !isempty(column_names_range)
         column_names = xf[sheet_name][column_names_range]
         for i in eachindex(column_names)
             if ismissing(column_names[i])
                 column_names[i] = "missing_$(i)"
+            elseif column_names[i] in column_names[begin:(i-1)]
+                column_names[i] *= "_" * XLSX.encode_column_number(startcol + i)
             end
         end
     else
@@ -747,19 +752,13 @@ function make_input_struct(all_dependencies, cell_dict, dependency_dict, used_no
     input_name_map = Dict{CellDependency, String}()
 
     push!(lines, "@kwdef struct Inputs")
-    function in_table(cell, table)
-        c = colnum(cell)
-        r = rownum(cell)
-        # cell.sheet_name == table.sheet_name && c >= startcol(table) && c <= endcol(table) && r >= startrow(table) && r <= endrow(table)
-        cell.sheet_name == table.sheet_name && (r, c) in table
-    end
 
     for cell in sort(input_cells)
         struct_name = var_names[cell]
 
         is_table_cell = false
         for table in tables
-            if in_table(cell, table)
+            if cell in table
                 c = colnum(cell)
                 r = rownum(cell)
                 r_name = string(row_name(table, r - startrow(table) + 1))
@@ -774,7 +773,15 @@ function make_input_struct(all_dependencies, cell_dict, dependency_dict, used_no
             input_name_map[cell] = string("input.", struct_name)
         end
 
-        push!(lines, "\t$struct_name = $(repr(cell_dict[cell].value))")
+        value = cell_dict[cell].value
+        if value isa Dates.Time
+            value = value.instant
+        end
+        @show struct_name value repr(value)
+        if "s_Mech__and__Auto_I9" in struct_name
+            @show struct_name value repr(value)
+        end
+        push!(lines, "\t$struct_name = $(repr(value))")
     end
 
     push!(lines, "end\n")
@@ -950,6 +957,9 @@ function make_statement_graph(statements::Vector{AbstractStatement})
     if !isempty(cycles)
         println("Removing $(length(cycles)) cycles from the statement graph, this is almost certainly incorrect.")
         for cycle in cycles
+            for stmt in statements[cycle]
+                println("\t$stmt")
+            end
             rem_edge!(graph, cycle[end], cycle[begin])
         end
     end
@@ -1379,7 +1389,7 @@ function write_file(exporter::JuliaExporter, file_name::AbstractString, wb::Exce
         # @info "making var have input before it" cell_ref var
 
         exporter.var_names[cell_ref] = "inputs.$var"
-        println("Var name for $cell_ref is $(exporter.var_names[cell_ref])")
+        # println("Var name for $cell_ref is $(exporter.var_names[cell_ref])")
         # @show cell_ref exporter.var_names[cell_ref]
     end
 

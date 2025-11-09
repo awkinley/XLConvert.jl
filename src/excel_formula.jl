@@ -632,6 +632,17 @@ function xl_linest(y, x)
     ((X'*X)\(X'*y'))[1]
 end
 
+xl_isnumber(value) = value isa Number
+
+function xl_convert(value, unit_in, unit_out)
+
+    @match (unit_in, unit_out) begin
+        ("m/sec", "kn") => value * 1.943844492
+        ("kn", "m/hr") => value * 1.150779448
+    end
+
+end
+
 function exec_to_cell(expr::ExcelExpr)
     @match expr begin
         ExcelExpr(:cell_ref, [cell]) => cell
