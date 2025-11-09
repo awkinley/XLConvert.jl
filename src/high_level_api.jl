@@ -376,13 +376,13 @@ end
 
 function find_tables!(starting_tables::Vector{ExcelTable}, used_subset::XLConvert.WorkbookSubset)
     wb = used_subset.wb
-    cells_by_sheet = XLConvert.group_to_dict(filter(c -> wb.cell_dict[c] isa XLConvert.FormulaCell, keys(wb.cell_dict)), c -> c.sheet_name)
 
-    cells_by_sheet = XLConvert.group_to_dict(filter(c -> wb.cell_dict[c] isa XLConvert.FormulaCell, keys(wb.cell_dict)), c -> c.sheet_name)
-    for sheet_name in keys(cells_by_sheet)
-        sheet_tables = find_tables_in_sheet(sheet_name, [wb.cell_dict[c] for c in cells_by_sheet[sheet_name]])
-        append!(starting_tables, sheet_tables)
-    end
+    # used_cells = get_used_cells(used_subset)
+    # cells_by_sheet = group_to_dict(filter(c -> wb.cell_dict[c] isa XLConvert.FormulaCell, used_cells), c -> c.sheet_name)
+    # for sheet_name in keys(cells_by_sheet)
+    #     sheet_tables = find_tables_in_sheet(sheet_name, [wb.cell_dict[c] for c in cells_by_sheet[sheet_name]])
+    #     append!(starting_tables, sheet_tables)
+    # end
     find_untabled_ranges(used_subset, starting_tables)
 
     starting_tables

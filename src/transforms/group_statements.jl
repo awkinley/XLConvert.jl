@@ -324,6 +324,10 @@ function new_group_statements(statements::Vector{AbstractStatement}, graph, topo
 
         for node in level_nodes
             stmt = statements[node]
+            if stmt isa OutputStatement
+                continue
+            end
+
             # @show stmt
             do_debug = CellDependency("Cash Flow Analysis", "C108") in get_set_cells(stmt)
             if do_debug
