@@ -283,6 +283,10 @@ function get_ranges(expr::FlatExpr)
     ranges
 end
 
+function coord_to_cell_name(row, col)
+    string(XLSX.encode_column_number(col), row)
+end
+
 function find_untabled_ranges(used_subset::XLConvert.WorkbookSubset, tables::Vector{XLConvert.ExcelTable})
     used_cells = XLConvert.get_used_cells(used_subset)
     wb = used_subset.wb
@@ -374,6 +378,11 @@ function find_tables!(starting_tables::Vector{ExcelTable}, used_subset::XLConver
     wb = used_subset.wb
     cells_by_sheet = XLConvert.group_to_dict(filter(c -> wb.cell_dict[c] isa XLConvert.FormulaCell, keys(wb.cell_dict)), c -> c.sheet_name)
 
+    cells_by_sheet = XLConvert.group_to_dict(filter(c -> wb.cell_dict[c] isa XLConvert.FormulaCell, keys(wb.cell_dict)), c -> c.sheet_name)
+    for sheet_name in keys(cells_by_sheet)
+        sheet_tables = find_tables_in_sheet(sheet_name, [wb.cell_dict[c] for c in cells_by_sheet[sheet_name]])
+        append!(starting_tables, sheet_tables)
+    end
     find_untabled_ranges(used_subset, starting_tables)
 
     starting_tables

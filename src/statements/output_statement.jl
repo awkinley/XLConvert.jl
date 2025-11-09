@@ -11,7 +11,7 @@ function to_string(exporter, statement::OutputStatement)
 end
 
 function make_outupt_struct(exporter::JuliaExporter, wb::ExcelWorkbook, statement::OutputStatement)
-    variable_names = [exporter.var_names[v] for v in statement.output_vars]
+    variable_names = [simple_variable_name(v) for v in statement.output_vars]
     make_struct(exporter, "Outputs", variable_names)
 end
 
