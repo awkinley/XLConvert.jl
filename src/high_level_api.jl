@@ -297,10 +297,13 @@ function find_untabled_ranges(used_subset::XLConvert.WorkbookSubset, tables::Vec
             start_col, start_row = XLConvert.parse_cell(lhs)
             end_col, end_row = XLConvert.parse_cell(rhs)
 
-            range_cells = [CellDependency(sheet, XLConvert.index_to_cellname(col, r)) for r in start_row:end_row, col in start_col:end_col]
+            # range_cells = [CellDependency(sheet, XLConvert.index_to_cellname(col, r)) for r in start_row:end_row, col in start_col:end_col]
+            range_cells = [(r, col) for r in start_row:end_row, col in start_col:end_col]
             cell_table_idx = zeros(Int, size(range_cells))
             for (table_idx, table) in enumerate(tables)
-                @. cell_table_idx[range_cells ∈ (table,)] .= table_idx
+                if table.sheet_name == sheet
+                    @. cell_table_idx[range_cells ∈ (table,)] .= table_idx
+                end
             end
             unique_tables = unique(cell_table_idx)
             if length(unique_tables) != 1 || cell_table_idx[1] == 0

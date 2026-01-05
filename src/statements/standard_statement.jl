@@ -29,7 +29,7 @@ function export_statement(exporter::JuliaExporter, wb::ExcelWorkbook, statement:
     end
 
     sub_exprs, new_expr = common_subexpression_elimination(expr)
-    if (2 * length(sub_exprs) + length(new_expr.parts)) < length(expr.parts)
+    if false #(2 * length(sub_exprs) + length(new_expr.parts)) < length(expr.parts)
 
         res = """
         # =$formula_str

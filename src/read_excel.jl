@@ -347,7 +347,7 @@ function DefTable(xf::XLSX.XLSXFile, sheet_name, table_name, top_left, bottom_ri
             if ismissing(column_names[i])
                 column_names[i] = "missing_$(i)"
             elseif column_names[i] in column_names[begin:(i-1)]
-                column_names[i] *= "_" * XLSX.encode_column_number(startcol + i)
+                column_names[i] *= "_" * XLSX.encode_column_number(startcol)
             end
         end
     else
@@ -929,8 +929,9 @@ function make_statement_graph(statements::Vector{AbstractStatement})
         for cell_dep in cell_deps
             # cell_dep::CellDependency
             if !(cell_dep in keys(cell_to_statement))
-                @show get_set_cells(statement)
-                @show cell_dep
+                # @show get_set_cells(statement)
+                # @show cell_dep
+                continue
             end
             end_statement = cell_to_statement[cell_dep]
             end_node = statement_nums[end_statement]
