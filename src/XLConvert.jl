@@ -27,6 +27,8 @@ export CellDependency,
     CellTypes,
     AbstractStatement,
     parse_workbook,
+    get_cell,
+    get_num,
     get_workbook_subset,
     get_all_referenced_cells,
     get_cell_value,
@@ -96,6 +98,7 @@ export CellDependency,
 
 
 
+include("object_numbering.jl")
 include("excel_expr.jl")
 include("formula_parser.jl")
 include("excel_formula.jl")

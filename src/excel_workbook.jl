@@ -42,10 +42,27 @@ end
 
 
 struct ExcelWorkbook2
+    # xf::XLSX.XLSXFile
+    # cell_dict::Dict{CellDependency, CellTypes}
+    # cell_dependencies::Dict{CellDependency, Vector{CellDependency}}
+    # key_values::Dict{String, Any}
     xf::XLSX.XLSXFile
-    cell_dict::Dict{CellDependency, CellTypes}
-    cell_dependencies::Dict{CellDependency, Vector{CellDependency}}
+    cell_numbering::ObjectNumbering{CellDependency}
+    cell_dict::Dict{CellDependency, Any}
+    cell_graph::Graphs.SimpleDiGraph{Int64}
     key_values::Dict{String, Any}
+end
+
+function get_cell(wb::ExcelWorkbook2, num::Int64)
+    get_obj(wb.cell_numbering, num)
+end 
+function get_num(wb::ExcelWorkbook2, cell::CellDependency)
+    get_num(wb.cell_numbering, cell)
+end 
+
+function get_dependent_cells(wb::ExcelWorkbook2, cell::CellDependency)
+    num = get_num(wb, cell)
+    map(n -> get_cell(wb, n), outneighbors(wb.cell_graph, num))
 end
 
 ExcelWorkbook = ExcelWorkbook2
@@ -293,17 +310,68 @@ function parse_workbook(filepath::AbstractString)
     # parsed_key_values = Dict((p[1] => lower_sheet_names(toexpr(string(p[2])), "")) for p in XLSX.get_workbook(xf).workbook_names)
     # @show keys(XLSX.get_workbook(xf).workbook_names)
 
-    @time cell_dependencies = get_all_dependencies(cell_dict, parsed_key_values)
+    cell_list = collect(keys(cell_dict))
+    cell_numbering = ObjectNumbering(cell_list)
 
-    ExcelWorkbook(xf, cell_dict, cell_dependencies, parsed_key_values)
+    edge_list = Vector{Edge{Int64}}()
+    # A relatively random (and hopefully conservative) guess that the average degree is 2
+    sizehint!(edge_list, 2 * length(cell_numbering))
+    
+    @time "getting expr dependencies" for (i, cell) in enumerate(cell_numbering.objs)
+        content = get(cell_dict, cell, MissingCell())
+        if content isa XLConvert.FormulaCell
+            # empty!(handled_deps)
+            dep_cells = []
+            try
+                dep_cells = get_expr_dependency_ranges(content.expr, parsed_key_values)
+            catch e
+                println("Error getting cell dependencies for cell $cell")
+                # @show cell
+                # @show content
+                @show content.cell.formula
+                # println("Expr:")
+                # show(stdout, "text/plain", content.expr)
+                @show e
+                # throw(e)
+                continue
+            end
+
+            unique!(dep_cells)
+
+            for dep in dep_cells
+                if dep isa CellDependency
+                    num = get_num!(cell_numbering, dep)
+                    push!(edge_list, Edge(i, num))
+                else
+                    sheet = dep.first.sheet_name
+                    (start_col, start_row) = start_coord(dep)
+                    (end_col, end_row) = end_coord(dep)
+                    for r ∈ start_row:end_row, c ∈ start_col:end_col
+                        num = get_num!(cell_numbering, CellDependency(sheet, c, r))
+                        push!(edge_list, Edge(i, num))
+                    end
+                end
+            end
+        end
+
+    end
+
+    @time "graph construction" graph = Graphs.SimpleDiGraph(edge_list)
+
+    ExcelWorkbook(xf, cell_numbering, cell_dict, graph, parsed_key_values)
+
+    # @time cell_dependencies = get_all_dependencies(cell_dict, parsed_key_values)
+
+    # ExcelWorkbook(xf, cell_dict, cell_dependencies, parsed_key_values)
 end
 
 function get_all_referenced_cells(workbook::ExcelWorkbook)
-    unioned = Set(keys(workbook.cell_dependencies))
-    for cells in values(workbook.cell_dependencies)
-        union!(unioned, cells)
-    end
+    workbook.cell_numbering.objs
+    # unioned = Set(keys(workbook.cell_dependencies))
+    # for cells in values(workbook.cell_dependencies)
+    #     union!(unioned, cells)
+    # end
 
-    # collect(union(keys(workbook.cell_dependencies), values(workbook.cell_dependencies)...))
-    collect(unioned)
+    # # collect(union(keys(workbook.cell_dependencies), values(workbook.cell_dependencies)...))
+    # collect(unioned)
 end

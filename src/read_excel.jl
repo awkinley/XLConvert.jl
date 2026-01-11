@@ -867,13 +867,40 @@ function make_statements(subset::WorkbookSubset)
         cell_value = get_cell_value(workbook, cell)
         rhs_expr = get_expr(cell_value)
 
-        stmt = StandardStatement(cell, rhs_expr, get(workbook.cell_dependencies, cell, []))
+        # stmt = StandardStatement(cell, rhs_expr, get(workbook.cell_dependencies, cell, []))
+        stmt = StandardStatement(cell, rhs_expr, get_dependent_cells(workbook, cell))
 
         statements[i] = stmt
     end
 
     output_stmt = OutputStatement(subset.output_cells)
     statements[end] = output_stmt
+
+    statements
+end
+
+function make_statements(workbook::ExcelWorkbook2)
+    # workbook::ExcelWorkbook = subset.wb
+
+
+    lhs_cells = get_all_referenced_cells(workbook)
+
+    # statements = Vector{AbstractStatement}(undef, length(lhs_cells) + 1)
+    statements = Vector{AbstractStatement}(undef, length(lhs_cells))
+
+    for i in eachindex(lhs_cells)
+        cell = lhs_cells[i]
+        cell_value = get_cell_value(workbook, cell)
+        rhs_expr = get_expr(cell_value)
+
+        # stmt = StandardStatement(cell, rhs_expr, get(workbook.cell_dependencies, cell, []))
+        stmt = StandardStatement(cell, rhs_expr, get_dependent_cells(workbook, cell))
+
+        statements[i] = stmt
+    end
+
+    # output_stmt = OutputStatement(subset.output_cells)
+    # statements[end] = output_stmt
 
     statements
 end

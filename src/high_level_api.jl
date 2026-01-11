@@ -370,6 +370,80 @@ function find_untabled_ranges(used_subset::XLConvert.WorkbookSubset, tables::Vec
 
 end
 
+function find_untabled_ranges(used_subset::XLConvert.ExcelWorkbook2, tables::Vector{XLConvert.ExcelTable})
+    # used_cells = XLConvert.get_used_cells(used_subset)
+    # wb = used_subset.wb
+
+    function handle_expr(expr::XLConvert.FlatExpr)
+        ranges = get_ranges(expr)
+        for (sheet, lhs, rhs) in ranges
+            start_col, start_row = XLConvert.parse_cell(lhs)
+            end_col, end_row = XLConvert.parse_cell(rhs)
+
+            # range_cells = [CellDependency(sheet, XLConvert.index_to_cellname(col, r)) for r in start_row:end_row, col in start_col:end_col]
+            range_cells = [(r, col) for r in start_row:end_row, col in start_col:end_col]
+            cell_table_idx = zeros(Int, size(range_cells))
+            for (table_idx, table) in enumerate(tables)
+                if table.sheet_name == sheet
+                    @. cell_table_idx[range_cells ∈ (table,)] .= table_idx
+                end
+            end
+            unique_tables = unique(cell_table_idx)
+            if length(unique_tables) != 1 || cell_table_idx[1] == 0
+                # println("Found untabled range! $(lhs):$(rhs)")
+                # println("Cell Table Idx:")
+                # show(stdout, "text/plain", cell_table_idx)
+                # println("")
+            end
+            # Range overlaps with a single table
+            if length(unique_tables) == 2 && 0 in unique_tables
+                idx_to_grow = first(setdiff(unique_tables, Set([0])))
+                table_to_grow = tables[idx_to_grow]
+
+                left = min(start_col, startcol(table_to_grow))
+                right = max(end_col, endcol(table_to_grow))
+                top = min(start_row, startrow(table_to_grow))
+                bottom = max(end_row, endrow(table_to_grow))
+
+                top_left = coord_to_cell_name(top, left)
+                bottom_right = coord_to_cell_name(bottom, right)
+
+                table_name = "$(top_left)_$(bottom_right)"
+                col_names = XLSX.encode_column_number.(left:right)
+                old_name = getname(table_to_grow)
+                tables[idx_to_grow] = ExcelTable(sheet, table_name, top_left, bottom_right, "", "", col_names, missing)
+                println("Growing $(old_name) to $(getname(tables[idx_to_grow]))")
+            end
+
+            # Range overlaps with no tables
+            if all(unique_tables .== 0) && length(range_cells) > 4
+                top_left = coord_to_cell_name(start_row, start_col)
+                bottom_right = coord_to_cell_name(end_row, end_col)
+
+                table_name = "$(top_left)_$(bottom_right)"
+                col_names = XLSX.encode_column_number.(start_col:end_col)
+                push!(tables, ExcelTable(sheet, table_name, top_left, bottom_right, "", "", col_names, missing))
+                println("Creating new table $(table_name)")
+
+            end
+        end
+    end
+
+    for cell in used_subset.cell_numbering.objs
+        if !(cell in keys(used_subset.cell_dict))
+            continue
+        end
+
+        expr = XLConvert.get_expr(used_subset.cell_dict[cell])
+        if !(expr isa XLConvert.FlatExpr)
+            continue
+        end
+
+        handle_expr(expr)
+
+    end
+end
+
 
 function find_tables(used_subset::XLConvert.WorkbookSubset)
     all_tables = Vector{XLConvert.ExcelTable}()
@@ -391,7 +465,58 @@ function find_tables!(starting_tables::Vector{ExcelTable}, used_subset::XLConver
     starting_tables
 end
 
+function find_tables(used_subset::XLConvert.ExcelWorkbook2)
+    all_tables = Vector{XLConvert.ExcelTable}()
+
+    find_tables!(all_tables, used_subset)
+end
+
+function find_tables!(starting_tables::Vector{ExcelTable}, used_subset::XLConvert.ExcelWorkbook2)
+    # wb = used_subset.wb
+
+    # used_cells = get_used_cells(used_subset)
+    # cells_by_sheet = group_to_dict(filter(c -> wb.cell_dict[c] isa XLConvert.FormulaCell, used_cells), c -> c.sheet_name)
+    # for sheet_name in keys(cells_by_sheet)
+    #     sheet_tables = find_tables_in_sheet(sheet_name, [wb.cell_dict[c] for c in cells_by_sheet[sheet_name]])
+    #     append!(starting_tables, sheet_tables)
+    # end
+    find_untabled_ranges(used_subset, starting_tables)
+
+    starting_tables
+end
+
 function get_statements(used_subset::WorkbookSubset, tables::Vector{ExcelTable})
+    @time "Make statements" statements = make_statements(used_subset)
+    @time "if_multiple_transform" if_multiple_transform!(statements)
+    @time "if_toggle_transform" if_toggle_transform!(statements)
+    @time "round_if_transform" round_if_transform!(statements)
+    # @time "is_blank_transform" is_blank_transform!(statements)
+    @time "table_ref_transform" table_ref_transform!(statements, tables)
+    table_stmts = filter(s -> s isa XLConvert.TableStatement, statements)
+    @show length(table_stmts)
+
+    println("-"^40)
+    println("Table Broadcast Transform")
+    println("-"^40)
+    @time statements = table_broadcast_transform_2d!(statements)
+    println("-"^40)
+    println("Group statements")
+    println("-"^40)
+    @time grouped_statements = group_statements(statements)
+    println("-"^40)
+    println("Group statements (again)")
+    println("-"^40)
+    @time grouped_statements = group_statements(grouped_statements)
+    println("-"^40)
+    println("Add functions")
+    println("-"^40)
+    @time statements_with_funcs = add_functions(grouped_statements, min_intermediates = 2)
+    # statements_with_funcs = add_functions(statements, min_intermediates=2)
+
+    statements_with_funcs
+end
+
+function get_statements(used_subset::ExcelWorkbook2, tables::Vector{ExcelTable})
     @time "Make statements" statements = make_statements(used_subset)
     @time "if_multiple_transform" if_multiple_transform!(statements)
     @time "if_toggle_transform" if_toggle_transform!(statements)

@@ -38,10 +38,94 @@ function get_expr_dependencies(expr::FlatExpr, key_values::Dict)
 
                 @assert end_row >= start_row
                 @assert end_col >= start_col
+                append!(deps, [CellDependency(sheet, c, r) for c ∈ start_col:end_col for r ∈ start_row:end_row])
+                # num_new_cells = (end_col - start_col + 1) * (end_row - start_row + 1)
+                # sizehint!(deps, length(deps) + num_new_cells)
 
-                for col in start_col:end_col, r in start_row:end_row
-                    push!(deps, CellDependency(sheet, index_to_cellname(col, r)))
+                # for col in start_col:end_col, r in start_row:end_row
+                #     # push!(deps, CellDependency(sheet, index_to_cellname(col, r)))
+                #     push!(deps, CellDependency(sheet, col, r))
+                #     num_new_cells -= 1
+                # end
+                # @assert num_new_cells == 0
+
+                push!(handled, lhs_i)
+                push!(handled, rhs_i)
+            end
+            _ => continue
+        end
+    end
+
+    deps
+end
+
+@auto_hash_equals struct WorkbookRegion
+    first::CellDependency
+    last::CellDependency
+end
+
+"""
+(start_column, start_row) of the range
+"""
+start_coord(region::WorkbookRegion) = XLConvert.get_coords(region.first)
+"""
+(end_column, end_row) of the range
+"""
+end_coord(region::WorkbookRegion) = XLConvert.get_coords(region.last)
+
+function Base.size(region::WorkbookRegion)
+    (first_col, first_row) = start_coord(region)
+    (last_col, last_row) = end_coord(region)
+    num_rows = last_row - first_row + 1
+    num_cols = last_col - first_col + 1
+
+    (num_rows, num_cols)
+end
+
+function Base.show(io::IO, region::WorkbookRegion)
+    first = region.first
+    last = region.last
+    if first.sheet_name == last.sheet_name
+        sheet = first.sheet_name
+        (num_rows, num_cols) = size(region)
+        print(io, "WorkbookRegion($(sheet)!$(first.cell):$(last.cell), $(num_rows) x $(num_cols))")
+    else
+        print(io, "WorkbookRegion($(region.first):$(region.last)")
+    end
+end
+
+get_expr_dependency_ranges(expr::Any, key_values::Dict) = Vector{Union{WorkbookRegion, CellDependency}}()
+function get_expr_dependency_ranges(expr::FlatExpr, key_values::Dict)
+    deps = Vector{Union{WorkbookRegion, CellDependency}}()
+    handled = Set{Int}()
+    # @display expr
+    for (i, part) in enumerate(expr.parts)
+        i in handled && continue
+        # @show part
+
+        @match part begin
+            ExcelExpr(:cell_ref, [cell, sheet]) => push!(deps, CellDependency(sheet, cell))
+            # ExcelExpr(:sheet_ref, (sheet_name, ref)) => get_expr_dependencies(ref, key_values)
+            ExcelExpr(:named_range, [name]) => append!(deps, get_expr_dependency_ranges(key_values[name], key_values))
+            ExcelExpr(:structured_reference, args) => begin
+                throw("Don't know how to handle structured references!")
+            end
+            ExcelExpr(:range, [FlatIdx(lhs_i), FlatIdx(rhs_i)]) => begin
+                lhs_expr = expr.parts[lhs_i]
+                rhs_expr = expr.parts[rhs_i]
+                if !((lhs_expr.head == :cell_ref) && (rhs_expr.head == :cell_ref))
+                    # throw("Don't know how to get dependencies because of a range expression without cell refs. i = $i. lhs_expr = $(lhs_expr.head), rhs_expr = $(rhs_expr.head)")
+                    continue
                 end
+                sheet = lhs_expr.args[2]
+                if (sheet != rhs_expr.args[2])
+                    throw("Don't know how to get dependencies because of a range expression that doesn't share a cell. i = $i")
+                end
+
+                lhs = lhs_expr.args[1]
+                rhs = rhs_expr.args[1]
+
+                push!(deps, WorkbookRegion(CellDependency(sheet, lhs), CellDependency(sheet, rhs)))
 
                 push!(handled, lhs_i)
                 push!(handled, rhs_i)
@@ -72,7 +156,7 @@ function get_expr_dependencies(expr::ExcelExpr, key_values::Dict)::Vector{CellDe
 
             @assert end_row >= start_row
             @assert end_col >= start_col
-            [CellDependency(sheet, index_to_cellname(c, r)) for c ∈ start_col:end_col for r ∈ start_row:end_row]
+            [CellDependency(sheet, c, r) for c ∈ start_col:end_col for r ∈ start_row:end_row]
         end
         # TODO: Handle?
         ExcelExpr(:range, [lhs, rhs]) => throw("Don't know how to get dependencies for $(expr)")
