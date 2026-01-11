@@ -1,10 +1,23 @@
 @auto_hash_equals struct CellDependency
     sheet_name::String
-    cell::String
+    col::Int64
+    row::Int64
+end
 
-    function CellDependency(sheet_name, cell)
-        new_cell = replace(cell, "\$" => "")
-        new(sheet_name, new_cell)
+function cell_str(cell::CellDependency)
+    XLSX.encode_column_number(cell.col) * string(cell.row)
+end
+
+function CellDependency(sheet_name, cell::AbstractString)
+    col, row = parse_cell(cell)
+    CellDependency(sheet_name, col, row)
+end
+
+function Base.getproperty(cell::CellDependency, sym::Symbol)
+    if sym === :cell
+        cell_str(cell)
+    else # fallback to getfield
+        getfield(cell, sym)
     end
 end
 
@@ -41,20 +54,14 @@ function offset(cell::CellDependency, rows::Int, cols::Int)
     # CellDependency(cell.sheet_name, string(new_col, new_row))
 end
 
-get_coords(cell::CellDependency) = parse_cell(cell.cell)
+get_coords(cell::CellDependency) = (cell.col, cell.row)
 
 function rownum(cell::CellDependency)
-    cell_match = match(cell_parse_rgx, cell.cell)
-    @assert cell_match.match == cell.cell "Cell didn't parse properly"
-    row_str = cell_match[2]
-    parse(Int, row_str)
+    cell.row
 end
 
 function colnum(cell::CellDependency)
-    cell_match = match(cell_parse_rgx, cell.cell)
-    @assert cell_match.match == cell.cell "Cell didn't parse properly"
-    col_str = cell_match[1]
-    XLSX.decode_column_number(col_str[1:end])
+    cell.col
 end
 
 function to_string(cell_ref::CellDependency)
