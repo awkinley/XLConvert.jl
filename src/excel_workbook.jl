@@ -375,3 +375,76 @@ function get_all_referenced_cells(workbook::ExcelWorkbook)
     # # collect(union(keys(workbook.cell_dependencies), values(workbook.cell_dependencies)...))
     # collect(unioned)
 end
+
+function get_workbook_subset(workbook::XLConvert.ExcelWorkbook, output_cells::Vector{CellDependency}, input_cells::Vector{CellDependency})
+    all_referenced_nodes = get_all_referenced_cells(workbook)
+    for cell in output_cells
+        if cell ∉ all_referenced_nodes
+            println("Adding cell $cell to all_referenced_nodes")
+            push!(all_referenced_nodes, cell)
+        end
+    end
+
+    graph = workbook.cell_graph
+
+    # @show length(all_referenced_nodes) nv(graph)
+    # @assert length(all_referenced_nodes) == nv(graph)
+    target_used_nodes = zeros(Bool, nv(graph))
+
+    for target in output_cells
+        target_node_num = get_num(wb, target)
+
+        parents = bfs_parents(graph, target_node_num, dir = :out)
+        @. target_used_nodes |= parents > 0
+    end
+
+    input_children = zeros(Bool, nv(graph))
+    for input in input_cells
+        node_num = get_num(wb, input)
+        children = bfs_parents(graph, node_num, dir  = :in)
+        @. input_children |=  children > 0
+    end
+    subgraph_mask = target_used_nodes .& input_children
+
+    value_inputs_mask = zeros(Bool, nv(graph))
+
+    for n in findall(subgraph_mask)
+        for dependent in outneighbors(graph, n)
+            if !subgraph_mask[dependent]
+                value_inputs_mask[dependent] = true
+            end
+        end
+    end
+
+    used_nodes_list = findall(subgraph_mask .| value_inputs_mask)
+
+    cell_dict = Dict{CellDependency, Any}()
+    for n in used_nodes_list
+        cell = get_cell(workbook, n)
+        cell_val = workbook.cell_dict[cell]
+        if subgraph_mask[n] || cell_val isa XLConvert.ValueCell || cell_val isa XLConvert.MissingCell
+            cell_dict[cell] = cell_val
+        else
+            # If all the the inputs to this cell (which is an additional input, and would normally just be a value cell)
+            # are present in the inputs, then it can actually be a formula cell
+            # This shows up in cases like
+            # input_a = 10.0
+            # input_b = input_a
+            # expr_a = input_a + input_b
+            # The induced_subgraph will record this interdependency, so it's nicer to keep it
+            # Note, this doesn't handle cases where only some of the inputs are
+            # present, in which case we probably need to modify the subgraph to remove the edges between inputs.
+            if all([value_inputs_mask[c] for c in outneighbors(graph, n)])
+                cell_dict[cell] = cell_val
+            else
+                cell_dict[cell] = XLConvert.ValueCell(cell_val.cell, workbook.xf[cell.sheet_name][cell.cell])
+            end
+        end
+    end
+
+    (subgraph, vmap) = induced_subgraph(graph, used_nodes_list)
+
+    cell_numbering = XLConvert.ObjectNumbering(workbook.cell_numbering.objs[vmap])
+
+    XLConvert.ExcelWorkbook(wb.xf, cell_numbering, cell_dict, subgraph, workbook.key_values)
+end

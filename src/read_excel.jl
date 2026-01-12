@@ -307,7 +307,7 @@ function set_names_from_table!(name_map, cell_dependencies, table::ExcelTable)
     c_start, r_start = parse_cell(table.top_left)
     c_end, r_end = parse_cell(table.bottom_right)
     for c in c_start:c_end, r in r_start:r_end
-        cell = CellDependency(table.sheet_name, index_to_cellname(c, r))
+        cell = CellDependency(table.sheet_name, c, r)
         if cell in cell_dependencies
             row_idx = r - startrow(table) + 1
             col_name = column_name(table, c - startcol(table) + 1)
@@ -778,9 +778,6 @@ function make_input_struct(all_dependencies, cell_dict, dependency_dict, used_no
             value = value.instant
         end
         @show struct_name value repr(value)
-        if "s_Mech__and__Auto_I9" in struct_name
-            @show struct_name value repr(value)
-        end
         push!(lines, "\t$struct_name = $(repr(value))")
     end
 
@@ -1229,34 +1226,61 @@ function make_dataframe_declaration(exporter::JuliaExporter, wb::ExcelWorkbook, 
 
     sheet = table.sheet_name
     # println(getname(table))
-    start_c = startcol(table)
 
     col_defs = Vector{String}()
     sizehint!(col_defs, num_cols)
+    if is_transposed(table)
+        start_r = startrow(table)
+        for r in startrow(table):endrow(table)
+            col_cells = [CellDependency(sheet, c, r) for c in startcol(table):endcol(table)]
 
-    for c in startcol(table):endcol(table)
-        col_cells = [CellDependency(sheet, index_to_cellname(c, r)) for r in startrow(table):endrow(table)]
+            types = reduce(union_types, [get(exporter.cell_types, c, Missing) for c in col_cells])
+            col_values = if types == Missing
+                "Vector{Missing}(missing, $num_rows)"
+            elseif types == Float64
+                "zeros($num_rows)"
+            elseif types == Any
+                "Vector{Any}(missing, $num_rows)"
+            elseif types isa DataType
+                "Vector{Union{$types, Missing}}(missing, $num_rows)"
+            else
+                push!(types, Missing)
 
-        types = reduce(union_types, [get(exporter.cell_types, c, Missing) for c in col_cells])
-        col_values = if types == Missing
-            "Vector{Missing}(missing, $num_rows)"
-        elseif types == Float64
-            "zeros($num_rows)"
-        elseif types == Any
-            "Vector{Any}(missing, $num_rows)"
-        elseif types isa DataType
-            "Vector{Union{$types, Missing}}(missing, $num_rows)"
-        else
-            push!(types, Missing)
+                "Vector{Union{$(join(string.(types),","))}}(missing, $num_rows)"
+            end
 
-            "Vector{Union{$(join(string.(types),","))}}(missing, $num_rows)"
+            col_name = column_name(table, r - start_r + 1)
+            # col_def = "$(repr(col_name)) => fill!(Vector{$type_str}(undef, $num_rows), $initial_value)"
+            col_def = "$(repr(col_name)) => $col_values"
+            push!(col_defs, col_def)
+            # println("Col: $col_name type: $(types)")
         end
+    else
+        start_c = startcol(table)
+        for c in startcol(table):endcol(table)
+            col_cells = [CellDependency(sheet, c, r) for r in startrow(table):endrow(table)]
 
-        col_name = column_name(table, c - start_c + 1)
-        # col_def = "$(repr(col_name)) => fill!(Vector{$type_str}(undef, $num_rows), $initial_value)"
-        col_def = "$(repr(col_name)) => $col_values"
-        push!(col_defs, col_def)
-        # println("Col: $col_name type: $(types)")
+            types = reduce(union_types, [get(exporter.cell_types, c, Missing) for c in col_cells])
+            col_values = if types == Missing
+                "Vector{Missing}(missing, $num_rows)"
+            elseif types == Float64
+                "zeros($num_rows)"
+            elseif types == Any
+                "Vector{Any}(missing, $num_rows)"
+            elseif types isa DataType
+                "Vector{Union{$types, Missing}}(missing, $num_rows)"
+            else
+                push!(types, Missing)
+
+                "Vector{Union{$(join(string.(types),","))}}(missing, $num_rows)"
+            end
+
+            col_name = column_name(table, c - start_c + 1)
+            # col_def = "$(repr(col_name)) => fill!(Vector{$type_str}(undef, $num_rows), $initial_value)"
+            col_def = "$(repr(col_name)) => $col_values"
+            push!(col_defs, col_def)
+            # println("Col: $col_name type: $(types)")
+        end
     end
     # col_names = [column_name(table, c) for c in 1:num_cols]
     # line_str = "\t$lhs = DataFrame(Base.convert(Matrix{Any}, zeros($num_rows, $num_cols)), [$(join(repr.(col_names), ", "))])"

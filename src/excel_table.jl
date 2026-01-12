@@ -7,6 +7,7 @@ struct ExcelTable
     bottom_right::String
     column_names_range::String
     row_names_range::Union{String, Missing}
+    is_transposed::Bool
 
     _col_names::Any
     _row_names::Any
@@ -30,9 +31,29 @@ function ExcelTable(sheet_name::String,
     start_col, start_row = parse_cell(top_left)
     end_col, end_row = parse_cell(bottom_right)
 
-    ExcelTable(sheet_name, table_name, top_left, bottom_right, column_names_range, row_names_range, _col_names, _row_names, start_col, start_row, end_col, end_row)
+    ExcelTable(sheet_name, table_name, top_left, bottom_right, column_names_range, row_names_range, false, _col_names, _row_names, start_col, start_row, end_col, end_row)
 
 end
+
+function transpose(tbl::ExcelTable)
+    ExcelTable(
+        tbl.sheet_name,
+        tbl.table_name,
+        tbl.top_left,
+        tbl.bottom_right,
+        tbl.column_names_range,
+        tbl.row_names_range,
+        true,
+        tbl._col_names,
+        tbl._row_names,
+        tbl.__startcol,
+        tbl.__startrow,
+        tbl.__endcol,
+        tbl.__endrow,
+    )
+end
+
+is_transposed(tbl::ExcelTable) = tbl.is_transposed
 
 function Base.:(==)(a::ExcelTable, b::ExcelTable)
     a.sheet_name == b.sheet_name && a.top_left == b.top_left && a.bottom_right == b.bottom_right

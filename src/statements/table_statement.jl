@@ -79,6 +79,9 @@ function export_statement(exporter::JuliaExporter, wb::ExcelWorkbook, statement:
         ExcelExpr(:table_ref, [table, row_idx, col_idx, _, _]) => (table, row_idx, col_idx)
         _ => (missing, missing, missing)
     end
+    if is_transposed(table)
+        (lhs_row_idx, lhs_col_idx) = (lhs_col_idx, lhs_row_idx)
+    end
 
     function replace_func_params(expr, params_dict)
         @match expr begin

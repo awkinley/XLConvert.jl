@@ -151,6 +151,9 @@ function handle(::TableRefHandler, expr::ExcelExpr, exporter::JuliaExporter, ctx
             # else
             #     repr(col_idx)
             # end
+            if is_transposed(table)
+                (row_idx, col_idx) = (col_idx, row_idx)
+            end
 
             # "$(getname(table))[$row_idx_str, $col_idx_str]"
             col_name = [string(column_name(table, c)) for c in col_idx]
