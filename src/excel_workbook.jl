@@ -376,7 +376,7 @@ function get_all_referenced_cells(workbook::ExcelWorkbook)
     # collect(unioned)
 end
 
-function get_workbook_subset(workbook::XLConvert.ExcelWorkbook, output_cells::Vector{CellDependency}, input_cells::Vector{CellDependency})
+function get_workbook_subset(workbook::XLConvert.ExcelWorkbook2, output_cells::Vector{CellDependency}, input_cells::Vector{CellDependency})
     all_referenced_nodes = get_all_referenced_cells(workbook)
     for cell in output_cells
         if cell ∉ all_referenced_nodes
@@ -392,7 +392,7 @@ function get_workbook_subset(workbook::XLConvert.ExcelWorkbook, output_cells::Ve
     target_used_nodes = zeros(Bool, nv(graph))
 
     for target in output_cells
-        target_node_num = get_num(wb, target)
+        target_node_num = get_num(workbook, target)
 
         parents = bfs_parents(graph, target_node_num, dir = :out)
         @. target_used_nodes |= parents > 0
@@ -400,7 +400,7 @@ function get_workbook_subset(workbook::XLConvert.ExcelWorkbook, output_cells::Ve
 
     input_children = zeros(Bool, nv(graph))
     for input in input_cells
-        node_num = get_num(wb, input)
+        node_num = get_num(workbook, input)
         children = bfs_parents(graph, node_num, dir  = :in)
         @. input_children |=  children > 0
     end
@@ -446,5 +446,5 @@ function get_workbook_subset(workbook::XLConvert.ExcelWorkbook, output_cells::Ve
 
     cell_numbering = XLConvert.ObjectNumbering(workbook.cell_numbering.objs[vmap])
 
-    XLConvert.ExcelWorkbook(wb.xf, cell_numbering, cell_dict, subgraph, workbook.key_values)
+    XLConvert.ExcelWorkbook(workbook.xf, cell_numbering, cell_dict, subgraph, workbook.key_values)
 end
