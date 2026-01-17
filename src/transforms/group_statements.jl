@@ -343,7 +343,12 @@ function new_group_statements(statements::Vector{AbstractStatement}, graph, topo
             if do_debug
                 @show compress_group
             end
-            if length(compress_group) > 10
+            # Technically, this could be alright if the value is then only used internally
+            # But because a group will generally introduce a scope, it's important that any values set inside that are available outside
+            # This is true for table statements, since the table persists, but for other kinds of statements, the value won't persist
+            # It also causes functions to have more parameters than needed
+            has_non_table_statement = any(n -> !isa(statements[n], TableStatement), @view compress_group[begin:end-1])
+            if length(compress_group) > 10 && !has_non_table_statement
                 union!(visited, compress_group)
                 println("Found a group of $(length(compress_group)) nodes that can be smushed")
                 for node in compress_group[1:5]
