@@ -18,6 +18,19 @@ end
 
 get_obj(numbering::ObjectNumbering{T}, i::Int64) where {T} = numbering.objs[i]
 
+function rem_obj!(numbering::ObjectNumbering{T}, i::Int64) where {T}
+    obj = get_obj(numbering, i)
+
+    deleteat!(numbering.objs, i)
+    delete!(numbering.obj_nums, obj)
+
+    for (o, num) in numbering.obj_nums
+        if num > i 
+            numbering.obj_nums[o] = num - 1
+        end
+    end
+end
+
 Base.length(numbering::ObjectNumbering{T}) where {T} = length(numbering.objs)
 
 function ObjectNumbering(objs::Vector{T}) where {T}

@@ -565,6 +565,12 @@ function xl_xlookup(lookup_value::AbstractArray, lookup_array, return_array)
     map(v -> xl_xlookup(v, lookup_array, return_array), lookup_value)
 end
 
+function xl_xlookup(lookup_value, lookup_array::DataFrame, return_array::DataFrame)
+    @assert size(lookup_array)[1] == 1
+    @assert size(return_array)[1] == 1
+
+    xl_xlookup(lookup_value, lookup_array[1, :], return_array[1, :])
+end
 function xl_xlookup(lookup_value, lookup_array, return_array)
     for i ∈ eachindex(lookup_array)
         if xl_eq(lookup_value, lookup_array[i])
