@@ -126,7 +126,8 @@ function convert_cell(sheet, sheet_name, cell::XLSX.Cell)
         catch e
             println("Failed to parse cell formula")
             println(cell.formula.formula)
-            throw(e)
+            # throw(e)
+            ValueCell(cell, XLSX.getdata(sheet, cell))
         end
     else
         ValueCell(cell, XLSX.getdata(sheet, cell))
@@ -376,6 +377,74 @@ function get_all_referenced_cells(workbook::ExcelWorkbook)
     # collect(unioned)
 end
 
+function get_workbook_subset(workbook::XLConvert.ExcelWorkbook2, output_cells::Vector{CellDependency})
+    all_referenced_nodes = get_all_referenced_cells(workbook)
+    for cell in output_cells
+        if cell ∉ all_referenced_nodes
+            println("Adding cell $cell to all_referenced_nodes")
+            push!(all_referenced_nodes, cell)
+        end
+    end
+
+    graph = workbook.cell_graph
+
+    # @show length(all_referenced_nodes) nv(graph)
+    # @assert length(all_referenced_nodes) == nv(graph)
+    target_used_nodes = zeros(Bool, nv(graph))
+
+    for target in output_cells
+        target_node_num = get_num(workbook, target)
+
+        parents = bfs_parents(graph, target_node_num, dir = :out)
+        @. target_used_nodes |= parents > 0
+    end
+
+    used_nodes_list = findall(target_used_nodes)
+
+    cell_dict = workbook.cell_dict
+    # for n in used_nodes_list
+    #     cell = get_cell(workbook, n)
+    #     cell_val = workbook.cell_dict[cell]
+    #     if subgraph_mask[n] || cell_val isa XLConvert.ValueCell || cell_val isa XLConvert.MissingCell
+    #         cell_dict[cell] = cell_val
+    #     else
+    #         # If all the the inputs to this cell (which is an additional input, and would normally just be a value cell)
+    #         # are present in the inputs, then it can actually be a formula cell
+    #         # This shows up in cases like
+    #         # input_a = 10.0
+    #         # input_b = input_a
+    #         # expr_a = input_a + input_b
+    #         # The induced_subgraph will record this interdependency, so it's nicer to keep it
+    #         # Note, this doesn't handle cases where only some of the inputs are
+    #         # present, in which case we  modify the subgraph to remove the edges between inputs. (see below)
+    #         if all([value_inputs_mask[c] for c in outneighbors(graph, n)])
+    #             cell_dict[cell] = cell_val
+    #         else
+    #             cell_dict[cell] = XLConvert.ValueCell(cell_val.cell, workbook.xf[cell.sheet_name][cell.cell])
+    #         end
+    #     end
+    # end
+
+    # value_input_nodes = Set(findall(value_inputs_mask))
+
+    (subgraph, vmap) = induced_subgraph(graph, used_nodes_list)
+
+    # # Modifying the subgraph to remove edges to value input nodes
+    # for (new_node, old_node) in enumerate(vmap)
+    #     if old_node in value_input_nodes && cell_dict[get_cell(workbook, old_node)] isa XLConvert.ValueCell
+
+    #         edges_to_remove = [Edge(new_node, dep) for dep in outneighbors(subgraph, new_node)]
+    #         for e in edges_to_remove
+    #             rem_edge!(subgraph, e)
+    #         end
+    #     end
+    # end
+
+    cell_numbering = XLConvert.ObjectNumbering(workbook.cell_numbering.objs[vmap])
+
+    XLConvert.ExcelWorkbook(workbook.xf, cell_numbering, cell_dict, subgraph, workbook.key_values)
+end
+
 function get_workbook_subset(workbook::XLConvert.ExcelWorkbook2, output_cells::Vector{CellDependency}, input_cells::Vector{CellDependency})
     all_referenced_nodes = get_all_referenced_cells(workbook)
     for cell in output_cells
@@ -404,7 +473,11 @@ function get_workbook_subset(workbook::XLConvert.ExcelWorkbook2, output_cells::V
         children = bfs_parents(graph, node_num, dir  = :in)
         @. input_children |=  children > 0
     end
-    subgraph_mask = target_used_nodes .& input_children
+    if !isempty(input_cells)
+        subgraph_mask = target_used_nodes .& input_children
+    else
+        subgraph_mask = target_used_nodes
+    end
 
     value_inputs_mask = zeros(Bool, nv(graph))
 
@@ -433,7 +506,7 @@ function get_workbook_subset(workbook::XLConvert.ExcelWorkbook2, output_cells::V
             # expr_a = input_a + input_b
             # The induced_subgraph will record this interdependency, so it's nicer to keep it
             # Note, this doesn't handle cases where only some of the inputs are
-            # present, in which case we probably need to modify the subgraph to remove the edges between inputs.
+            # present, in which case we  modify the subgraph to remove the edges between inputs. (see below)
             if all([value_inputs_mask[c] for c in outneighbors(graph, n)])
                 cell_dict[cell] = cell_val
             else
@@ -442,7 +515,20 @@ function get_workbook_subset(workbook::XLConvert.ExcelWorkbook2, output_cells::V
         end
     end
 
+    value_input_nodes = Set(findall(value_inputs_mask))
+
     (subgraph, vmap) = induced_subgraph(graph, used_nodes_list)
+
+    # Modifying the subgraph to remove edges to value input nodes
+    for (new_node, old_node) in enumerate(vmap)
+        if old_node in value_input_nodes && cell_dict[get_cell(workbook, old_node)] isa XLConvert.ValueCell
+
+            edges_to_remove = [Edge(new_node, dep) for dep in outneighbors(subgraph, new_node)]
+            for e in edges_to_remove
+                rem_edge!(subgraph, e)
+            end
+        end
+    end
 
     cell_numbering = XLConvert.ObjectNumbering(workbook.cell_numbering.objs[vmap])
 

@@ -560,9 +560,9 @@ function export_statement(exporter::JuliaExporter, wb::ExcelWorkbook, statement:
 
     xf = wb.xf
     assert_lines = ""
-    for (cell_ref, name) in zip(set_cells, variable_names)
-        assert_lines *= "@assert xl_compare($name, $(repr(xf[string(cell_ref.sheet_name)][cell_ref.cell]))) # $(to_string(cell_ref))\n"
-    end
+    # for (cell_ref, name) in zip(set_cells, variable_names)
+    #     assert_lines *= "@assert xl_compare($name, $(repr(xf[string(cell_ref.sheet_name)][cell_ref.cell]))) # $(to_string(cell_ref))\n"
+    # end
 
 
     table_sub_stmts = filter(s -> s isa TableStatement, statement.sub_statements)

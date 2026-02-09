@@ -1,7 +1,7 @@
 
 function try_smush_node(statements::Vector{AbstractStatement}, graph, topo_levels, node; visited = missing, debug = false)
     max_level = maximum(values(topo_levels))
-    grouped_by_level = Dict((l => [kv.first for kv in topo_levels if kv.second == l]) for l in 0:max_level)
+    # grouped_by_level = Dict((l => [kv.first for kv in topo_levels if kv.second == l]) for l in 0:max_level)
 
     start_level = topo_levels[node]
     if debug
@@ -37,7 +37,7 @@ function try_smush_node(statements::Vector{AbstractStatement}, graph, topo_level
             end
         end
 
-        if length(level_nodes) > 1
+        if length(level_nodes) > 2
             debug && println("Breaking because there's more than two level nodes")
             break
         end
@@ -71,9 +71,12 @@ function try_smush_node(statements::Vector{AbstractStatement}, graph, topo_level
 
     grouped_nodes = Vector{Int64}()
 
+    function not_input(node)
+        length(outneighbors(graph, node)) > 0
+    end
 
     for lvl in reverse(current_level:start_level)
-        append!(grouped_nodes, get(deps_at_level, lvl, Vector{Int64}()))
+        append!(grouped_nodes, filter(not_input, get(deps_at_level, lvl, Vector{Int64}())))
     end
     @assert length(unique(grouped_nodes)) == length(grouped_nodes)
     if debug
@@ -87,7 +90,7 @@ end
 function debug_group_statements(statements::Vector{AbstractStatement}, graph, topo_levels, node)
 
     max_level = maximum(values(topo_levels))
-    grouped_by_level = Dict((l => [kv.first for kv in topo_levels if kv.second == l]) for l in 0:max_level)
+    # grouped_by_level = Dict((l => [kv.first for kv in topo_levels if kv.second == l]) for l in 0:max_level)
 
     function can_be_smushed(node)
         @show node

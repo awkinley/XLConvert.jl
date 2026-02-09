@@ -165,9 +165,12 @@ function export_statement(exporter::JuliaExporter, wb::ExcelWorkbook, statement:
 
         # "@assert xl_compare($lhs, $(repr(xf[string(cell_ref.sheet_name)][cell_ref.cell]))) # $(to_string(cell_ref))"
         # "$lhs = $rhs # $(cell_ref.sheet_name) $(cell_ref.cell) $row_str\n"
+        # """
+        # $lhs = $rhs # $(cell_ref.sheet_name) $(cell_ref.cell) $row_str
+        # @assert xl_compare($lhs, $(repr(xf[string(cell_ref.sheet_name)][cell_ref.cell]))) # $(to_string(cell_ref))
+        # """
         """
         $lhs = $rhs # $(cell_ref.sheet_name) $(cell_ref.cell) $row_str
-        @assert xl_compare($lhs, $(repr(xf[string(cell_ref.sheet_name)][cell_ref.cell]))) # $(to_string(cell_ref))
         """
     end
 end

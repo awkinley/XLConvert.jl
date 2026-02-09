@@ -342,7 +342,7 @@ function DefTable(xf::XLSX.XLSXFile, sheet_name, table_name, top_left, bottom_ri
     startcol = parse_cell(top_left)[1]
     endcol = parse_cell(bottom_right)[1]
     if !isempty(column_names_range)
-        column_names = xf[sheet_name][column_names_range]
+        column_names = string.(xf[sheet_name][column_names_range])
         for i in eachindex(column_names)
             if ismissing(column_names[i])
                 column_names[i] = "missing_$(i)"
@@ -983,9 +983,10 @@ function make_statement_graph(statements::Vector{AbstractStatement})
         println("Removing $(length(cycles)) cycles from the statement graph, this is almost certainly incorrect.")
         for cycle in cycles
             for stmt in statements[cycle]
-                println("\t$stmt")
+                println("\tStatement setting $(get_set_cells(stmt))")
             end
             rem_edge!(graph, cycle[end], cycle[begin])
+            println("-"^20)
         end
     end
 

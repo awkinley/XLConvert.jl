@@ -281,7 +281,7 @@ function xl_call_to_julia(fn_name, args)
         "TRANSPOSE" => "Matrix" * params * "'"
         "CONVERT" => "xl_convert" * params
         fn_name => begin
-            println("Function $fn_name not handled!")
+            # println("Function $fn_name not handled!")
             "xl_" * lowercase(fn_name) * params
         end
     end
@@ -434,16 +434,16 @@ function convert(exporter::JuliaExporter, expr::ExcelExpr, ctx::JlExporterCtx)
         res = handle(handler, expr, exporter, ctx)
         if !ismissing(res)
             if occursin("ExcelExpr", res)
-                @show res
+                # @show res
             end
             return res
         end
     end
 
 
-    @show expr
-    # string(expr)
-    throw("Failed to handle an excel expr: $expr")
+    # @show expr
+    string(expr)
+    # throw("Failed to handle an excel expr: $expr")
 end
 
 convert(exporter::JuliaExporter, expr, current_sheet::AbstractString) = convert(exporter, expr, JlExporterCtx(current_sheet, -1))

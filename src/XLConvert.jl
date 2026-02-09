@@ -19,6 +19,7 @@ macro display(val)
 end
 
 export CellDependency,
+    WorkbookRegion,
     MissingCell,
     AbstractHandler,
     ExcelExpr,

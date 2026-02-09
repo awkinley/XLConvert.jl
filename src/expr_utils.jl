@@ -64,6 +64,10 @@ end
     last::CellDependency
 end
 
+function WorkbookRegion(sheet::AbstractString, first_cell::AbstractString, last_cell::AbstractString)
+    WorkbookRegion(CellDependency(sheet, first_cell), CellDependency(sheet, last_cell))
+end
+
 """
 (start_column, start_row) of the range
 """
@@ -81,6 +85,18 @@ function Base.size(region::WorkbookRegion)
 
     (num_rows, num_cols)
 end
+
+function Base.in(cell::CellDependency, region::WorkbookRegion) 
+    if cell.sheet_name != region.first.sheet_name
+        return false
+    end
+
+    cell_coords = get_coords(cell)
+
+    all(cell_coords .>= start_coord(region)) && all(cell_coords .<= end_coord(region)) 
+end
+
+Base.in(in_region::WorkbookRegion, region::WorkbookRegion)  = (in_region.first in region) && (in_region.last in region)
 
 function Base.show(io::IO, region::WorkbookRegion)
     first = region.first

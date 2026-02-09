@@ -349,7 +349,6 @@ function table_broadcast_transform_2d!(statements::Vector{AbstractStatement})
     end
 
     function get_stmt_num_expr_parts(stmt::TableStatement)
-        expr = stmt.rhs_expr
         num_parts(stmt.rhs_expr)
     end
 
@@ -360,6 +359,7 @@ function table_broadcast_transform_2d!(statements::Vector{AbstractStatement})
         if lvl_a == lvl_b
             return true
         end
+        return false
 
         has_path = if lvl_b > lvl_a
             has_path_within(stmt_graph, node_b, node_a, lvl_b - lvl_a, path_seen)

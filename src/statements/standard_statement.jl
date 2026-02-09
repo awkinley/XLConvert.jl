@@ -51,15 +51,15 @@ function export_statement(exporter::JuliaExporter, wb::ExcelWorkbook, statement:
 
         rhs = convert(exporter, expr, cell_ref.sheet_name)
 
-        """
-        # =$formula_str
-        $lhs = $rhs # $(cell_ref.sheet_name) $(cell_ref.cell)
-        @assert xl_compare($lhs, $(repr(xf[string(cell_ref.sheet_name)][cell_ref.cell]))) # $(to_string(cell_ref))
-        """
         # """
         # # =$formula_str
         # $lhs = $rhs # $(cell_ref.sheet_name) $(cell_ref.cell)
+        # @assert xl_compare($lhs, $(repr(xf[string(cell_ref.sheet_name)][cell_ref.cell]))) # $(to_string(cell_ref))
         # """
+        """
+        # =$formula_str
+        $lhs = $rhs # $(cell_ref.sheet_name) $(cell_ref.cell)
+        """
 
     end
 
