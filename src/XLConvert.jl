@@ -94,7 +94,8 @@ export CellDependency,
     xl_average,
     xl_iferror,
     xl_convert,
-    xl_isnumber
+    xl_isnumber,
+    @flat_match
 
 
 
@@ -104,6 +105,7 @@ include("excel_expr.jl")
 include("formula_parser.jl")
 include("excel_formula.jl")
 include("flat_expr.jl")
+include("flat_match.jl")
 include("type_infer.jl")
 include("cell_dependency.jl")
 include("excel_table.jl")

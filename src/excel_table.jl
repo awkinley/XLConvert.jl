@@ -16,6 +16,8 @@ struct ExcelTable
     __startrow::Int64
     __endcol::Int64
     __endrow::Int64
+
+    __name::String
 end
 
 function ExcelTable(sheet_name::String,
@@ -30,8 +32,9 @@ function ExcelTable(sheet_name::String,
 
     start_col, start_row = parse_cell(top_left)
     end_col, end_row = parse_cell(bottom_right)
+    name = "tab_$(normalize_var_name(sheet_name))_$(normalize_var_name(table_name))"
 
-    ExcelTable(sheet_name, table_name, top_left, bottom_right, column_names_range, row_names_range, false, _col_names, _row_names, start_col, start_row, end_col, end_row)
+    ExcelTable(sheet_name, table_name, top_left, bottom_right, column_names_range, row_names_range, false, _col_names, _row_names, start_col, start_row, end_col, end_row, name)
 
 end
 
@@ -50,6 +53,7 @@ function transpose(tbl::ExcelTable)
         tbl.__startrow,
         tbl.__endcol,
         tbl.__endrow,
+        tbl.__name,
     )
 end
 
@@ -64,7 +68,8 @@ function Base.hash(a::ExcelTable)
 end
 # ExcelTable = ExcelTable5
 
-getname(table::ExcelTable) = "tab_$(normalize_var_name(table.sheet_name))_$(normalize_var_name(table.table_name))"
+# getname(table::ExcelTable) = "tab_$(normalize_var_name(table.sheet_name))_$(normalize_var_name(table.table_name))"
+getname(table::ExcelTable) = table.__name
 Base.size(table::ExcelTable) = (endrow(table) - startrow(table) + 1, endcol(table) - startcol(table) + 1)
 
 startcol(table::ExcelTable) = table.__startcol
@@ -77,6 +82,11 @@ endrow(table::ExcelTable) = table.__endrow
 # endcol(table::ExcelTable) = parse_cell(table.bottom_right)[1]
 # endrow(table::ExcelTable) = parse_cell(table.bottom_right)[2]
 function column_name(table::ExcelTable, col_idx)
+    if col_idx > length(table._col_names)
+        @show table
+        @show table.top_left table.bottom_right
+        @show table._col_names
+    end
     table._col_names[col_idx]
     # string(xf[table.sheet_name][table.column_names_range][col_idx])
 end

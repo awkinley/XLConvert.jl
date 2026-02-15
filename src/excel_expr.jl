@@ -1,11 +1,9 @@
 @auto_hash_equals struct ExcelExpr
     head::Symbol
-    # args::Tuple
     args::Array{Any,1}
 
     ExcelExpr(head::Symbol, arg::Any) = new(head, Any[arg])
     ExcelExpr(head::Symbol, args...) = new(head, collect(Any, args))
-    # ExcelExpr(head::Symbol, args::Tuple) = new(head, collect(Any, args))
     ExcelExpr(head::Symbol, args::Array{Any,1}) = new(head, args)
 end
 
