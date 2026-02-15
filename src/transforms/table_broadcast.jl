@@ -128,6 +128,7 @@ end
 
 function exprs_equal_with_offset(a::ExcelExpr, b::ExcelExpr, rows::Int, cols::Int)
     if a.head != b.head || length(a.args) != length(b.args)
+        # println("head not equal, or args different length")
         return false
     end
 
@@ -262,6 +263,9 @@ function equal_with_offset(a::FlatExpr, b::FlatExpr, rows::Int, cols::Int)
     return true
 end
 
+function equal_with_offset(a::AbstractString, b::AbstractString, rows::Int, cols::Int)
+    a == b
+end
 function equal_with_offset(a, b, rows::Int, cols::Int)
     if (a isa ExcelExpr) && (b isa ExcelExpr)
         return exprs_equal_with_offset(a, b, rows, cols)

@@ -179,7 +179,8 @@ function can_loop_stmts(statements::AbstractArray{AbstractStatement}, functional
     for (new_func, func_params) in functionalized[2:end]
         # for s in statements[2:end]
         #     new_func, func_params = functionalize(s.rhs_expr, [])
-        if func != new_func
+        # if func != new_func
+        if !isequal(func, new_func)
             # println("Failed because not all the functions are the same")
             return CantLoop("Not all the functions are the same")
             # return false
@@ -239,6 +240,7 @@ function can_loop_stmts(statements::AbstractArray{AbstractStatement}, functional
 
     true
 end
+
 
 function export_looped(exporter::JuliaExporter, wb::ExcelWorkbook, statements)
     funcs_and_params = [functionalize(s.rhs_expr) for s in statements]
@@ -322,6 +324,123 @@ function export_looped(exporter::JuliaExporter, wb::ExcelWorkbook, statements)
     """
 end
 
+function get_loop_end(statements_in::AbstractArray{AbstractStatement}, functionalized_in, start_i)
+    statements = @view statements_in[start_i:end]
+    functionalized = @view functionalized_in[start_i:end]
+
+    @assert length(statements) == length(functionalized)
+    @assert length(statements) > 0
+
+    if length(statements) == 1
+        return start_i
+    end
+
+    if length(statements) == 2
+        if can_loop_stmts(statements, functionalized) == true
+            return start_i + 1
+        else
+            return start_i
+        end
+    end
+
+
+    if any(isnothing, functionalized[1:2])
+        return start_i
+    end
+    func, params = functionalized[1]
+    func2, params2 = functionalized[2]
+
+    # funcs_equal = func == func2
+    # if func != func2
+    # if ismissing(funcs_equal) || !funcs_equal
+    if !isequal(func, func2)
+        return start_i
+    end
+
+    equal_params = Vector{Int}()
+    changing_params = Vector{Int}()
+    for (i, (p1, p2)) in enumerate(zip(params, params2))
+        if p1 == p2
+            push!(equal_params, i)
+        else
+            if p1.head != :table_ref
+                # return CantLoop("A changing param wasn't a table ref, $(first_val)")
+                return start_i
+            end
+            push!(changing_params, i)
+        end
+    end
+
+
+    cells1, cells2 = get_set_cells.(statements[1:2])
+    row_offset = rownum(cells2[1]) - rownum(cells1[1])
+    col_offset = colnum(cells2[1]) - colnum(cells1[1])
+
+    start_lhs = statements[1].lhs_expr
+
+    for i in 2:length(statements)
+
+        lhs = statements[i].lhs_expr
+
+        if lhs.head != :table_ref
+            return start_i + i - 2
+        end
+
+        row_idx = lhs.args[2]
+        col_idx = lhs.args[3]
+
+        start_row_idx = start_lhs.args[2]
+        start_col_idx = start_lhs.args[3]
+        fixed_row = start_lhs.args[4]
+        fixed_col = start_lhs.args[5]
+        offset_row = offset_with_fixed(start_row_idx, fixed_row, ((i - 1) * row_offset))
+        offset_col = offset_with_fixed(start_col_idx, fixed_col, ((i - 1) * col_offset))
+
+        if (row_idx != offset_row) || (col_idx != offset_col)
+            return start_i + i - 2
+        end
+
+
+        func_i, params_i = functionalized[i]
+
+        # if func_i != func
+        if !isequal(func_i, func)
+            return start_i + i - 2
+        end
+
+        for p_i in equal_params
+            if params_i[p_i] != params[p_i]
+                return start_i + i - 2
+            end
+        end
+
+        for p_i in changing_params
+            p = params_i[p_i]
+
+            if p.head != :table_ref
+                return start_i + i - 2
+            end
+
+            start_p = params[p_i]
+            row_idx = p.args[2]
+            col_idx = p.args[3]
+
+            start_row_idx = start_p.args[2]
+            start_col_idx = start_p.args[3]
+            fixed_row = start_p.args[4]
+            fixed_col = start_p.args[5]
+            offset_row = offset_with_fixed(start_row_idx, fixed_row, ((i - 1) * row_offset))
+            offset_col = offset_with_fixed(start_col_idx, fixed_col, ((i - 1) * col_offset))
+
+            if (row_idx != offset_row) || (col_idx != offset_col)
+                return start_i + i - 2
+            end
+        end
+    end
+
+    return length(statements_in)
+end
+
 function export_with_for_loops(exporter::JuliaExporter, wb::ExcelWorkbook, statement::GroupedStatement)
     sub_statements = statement.sub_statements
     lines = Vector{String}()
@@ -340,27 +459,64 @@ function export_with_for_loops(exporter::JuliaExporter, wb::ExcelWorkbook, state
     end
 
     functionalized = maybe_functionalize.(sub_statements)
+    while last_idx <= length(sub_statements)
+        i = get_loop_end(sub_statements, functionalized, last_idx)
+        # @show last_idx i length(sub_statements)
+        if i > last_idx
+            should_loop = can_loop_stmts(@view(sub_statements[last_idx:i]), @view(functionalized[last_idx:i]))
+            if should_loop != true
+                println("get_loop_end went too far!")
+                println("With last_idx = $(last_idx) i = $i, should_loop = $(should_loop)")
 
-    name = get_function_name(exporter, statement)
-    for i in 2:length(sub_statements)
-        # @show i
-        can_loop = can_loop_stmts(@view(sub_statements[last_idx:i]), @view(functionalized[last_idx:i]))
-        if can_loop != true
-            # println("Sub Statements[1]")
-            # show(stdout, "text/plain", sub_statements[1].rhs_expr)
-            # println("functionalized[1]")
-            # show(stdout, "text/plain", functionalized[1][1])
-            # println(functionalized[1][2])
-            # println("$name: couldn't for loop at i = $i because $(can_loop.reason)")
-            # throw(can_loop.reason)
-            push!(can_loop_ranges, last_idx:(i-1))
-            last_idx = i
+                for j in last_idx:i
+                    stmt = sub_statements[j]
+                    @show get_set_cells(stmt)
+                    @show functionalized[j][2]
+                end
+
+
+                @assert should_loop == true
+            end
         end
+        if i < length(sub_statements)
+            shouldnt_loop = can_loop_stmts(@view(sub_statements[last_idx:(i+1)]), @view(functionalized[last_idx:(i+1)]))
+            if shouldnt_loop == true
+                println("get_loop_end didn't go far enough too far!")
+                println("With last_idx = $(last_idx) i = $i, should_loop = $(should_loop)")
+                @assert shouldnt_loop != true
+            end
+        end
+
+        push!(can_loop_ranges, last_idx:i)
+        last_idx = i + 1
     end
-    push!(can_loop_ranges, last_idx:length(sub_statements))
+    # if can_loop_stmts(sub_statements, functionalized) == true
+    #     push!(can_loop_ranges, 1:length(sub_statements))
+    # else
+
+    #     for i in 2:length(sub_statements)
+    #         # @show i
+    #         can_loop = can_loop_stmts(@view(sub_statements[last_idx:i]), @view(functionalized[last_idx:i]))
+    #         if can_loop != true
+    #             # println("Sub Statements[1]")
+    #             # show(stdout, "text/plain", sub_statements[1].rhs_expr)
+    #             # println("functionalized[1]")
+    #             # show(stdout, "text/plain", functionalized[1][1])
+    #             # println(functionalized[1][2])
+    #             # println("$name: couldn't for loop at i = $i because $(can_loop.reason)")
+    #             # throw(can_loop.reason)
+    #             @assert get_loop_end(sub_statements, functionalized, last_idx) == (i - 1)
+    #             push!(can_loop_ranges, last_idx:(i-1))
+    #             last_idx = i
+    #         end
+    #     end
+    #     @assert get_loop_end(sub_statements, functionalized, last_idx) == length(sub_statements)
+    #     push!(can_loop_ranges, last_idx:length(sub_statements))
+    # end
     # @show last_idx
     # @show can_loop_ranges
 
+    name = get_function_name(exporter, statement)
     for stmt_indices in can_loop_ranges
         if length(stmt_indices) == 1
             push!(lines, export_statement(exporter, wb, sub_statements[first(stmt_indices)]))

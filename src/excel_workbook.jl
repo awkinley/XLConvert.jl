@@ -107,8 +107,11 @@ function lower_sheet_names!(expr::ExcelExpr, current_sheet::AbstractString)
         end
         ExcelExpr(:sheet_ref, [sheet_name, ref]) => lower_sheet_names!(ref, sheet_name)
         ExcelExpr(op, args) => begin
-            for arg in args
+            for (i, arg) in enumerate(args)
                 lower_sheet_names!(arg, current_sheet)
+                if arg isa ExcelExpr && arg.head == :sheet_ref
+                    expr.args[i] = arg.args[2]
+                end
             end
             # ExcelExpr(op, lower_sheet_names.(args, current_sheet))
         end
@@ -134,6 +137,9 @@ function convert_cell(sheet, sheet_name, cell::XLSX.Cell)
     end
 end
 
+function offset_formula_cell(new_cell::XLSX.Cell, formula_cell::ValueCell)
+    ValueCell(new_cell, formula_cell.value)
+end
 function offset_formula_cell(new_cell::XLSX.Cell, formula_cell::FormulaCell)
     cell_ref = formula_cell.cell.ref
     start_row = cell_ref.row_number

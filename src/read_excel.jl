@@ -304,8 +304,12 @@ end
 
 
 function set_names_from_table!(name_map, cell_dependencies, table::ExcelTable)
-    c_start, r_start = parse_cell(table.top_left)
-    c_end, r_end = parse_cell(table.bottom_right)
+    r_start = startrow(table)
+    c_start = startcol(table)
+    r_end = endrow(table)
+    c_end = endcol(table)
+    # c_start, r_start = parse_cell(table.top_left)
+    # c_end, r_end = parse_cell(table.bottom_right)
     for c in c_start:c_end, r in r_start:r_end
         cell = CellDependency(table.sheet_name, c, r)
         if cell in cell_dependencies
@@ -912,12 +916,10 @@ function make_cell_to_statement_dict(statements::Vector{AbstractStatement})
                 @show statement
                 @show cell
                 @show cell_to_statement[cell]
-            end
-            if cell in keys(cell_to_statement)
                 println("Statement", statement, "sets cell", cell)
                 println("but statement", cell_to_statement[cell], "already set that cell")
+                @assert !(cell in keys(cell_to_statement))
             end
-            @assert !(cell in keys(cell_to_statement))
 
             cell_to_statement[cell] = statement
         end
@@ -927,7 +929,7 @@ function make_cell_to_statement_dict(statements::Vector{AbstractStatement})
 end
 
 function make_statement_graph(statements::Vector{AbstractStatement})
-    cell_to_statement = make_cell_to_statement_dict(statements)
+    # cell_to_statement = make_cell_to_statement_dict(statements)
     # cell_to_statement = Dict{CellDependency,AbstractStatement}()
     # for statement in statements
     #     set_cells = get_set_cells(statement)
@@ -943,34 +945,66 @@ function make_statement_graph(statements::Vector{AbstractStatement})
     #     end
     # end
 
-    statement_nums = Dict{AbstractStatement, Int64}([n => i for (i, n) in enumerate(statements)])
+    cell_to_statement = Dict{CellDependency, Int64}()
+    for (i, statement) in enumerate(statements)
+        set_cells = get_set_cells(statement)
+        for cell in set_cells
+            if cell in keys(cell_to_statement)
+                @show statement
+                @show cell
+                @show cell_to_statement[cell]
+                println("Statement", statement, "sets cell", cell)
+                println("but statement", cell_to_statement[cell], "already set that cell")
+                @assert !(cell in keys(cell_to_statement))
+            end
+
+            cell_to_statement[cell] = i
+        end
+    end
+
+    cell_to_statement
+
+    # statement_nums = Dict{AbstractStatement, Int64}(n => i for (i, n) in enumerate(statements))
     # adj_matrix = zeros(Bool, (length(statements), length(statements)))
+    # stmt_end_nodes = Vector{Int64}()
 
     edge_list = Vector{Edge{Int64}}()
-    for statement in statements
-        start_node = statement_nums[statement]
+    sizehint!(edge_list, length(statements))
+    for (start_node, statement) in enumerate(statements)
+        # start_node = statement_nums[statement]
+        # start_node = statement_nums[statement]
         cell_deps::Vector{CellDependency} = get_cell_deps(statement)
+        # empty!(stmt_end_nodes)
+
         for cell_dep in cell_deps
             # cell_dep::CellDependency
-            if !(cell_dep in keys(cell_to_statement))
+            # end_statement = get(cell_to_statement, cell_dep, nothing)
+            end_node = get(cell_to_statement, cell_dep, nothing)
+            # if !(cell_dep in keys(cell_to_statement))
+            # if isnothing(end_statement)
+            if isnothing(end_node)
                 # @show get_set_cells(statement)
                 # @show cell_dep
                 continue
             end
-            end_statement = cell_to_statement[cell_dep]
-            end_node = statement_nums[end_statement]
+            # end_statement = cell_to_statement[cell_dep]
+            # end_node = statement_nums[end_statement]
 
             # In cases like grouped statements, it's possible for nodes to depend on themselves
             # we should just be able to ignore that
             if start_node != end_node
-                # adj_matrix[start_node, end_node] = true
+                # if !(end_node in stmt_end_nodes)
+                #     push!(stmt_end_nodes, end_node)
+                # end
                 push!(edge_list, Edge(start_node, end_node))
             end
         end
+
+        # append!(edge_list, Edge.(start_node, stmt_end_nodes))
     end
 
 
-    # nested_edge_list = [[(statement_nums[statement], statement_nums[cell_to_statement[cell_dep]]) for cell_dep in get_cell_deps(statement)] for statement in statements]
+    # nested_edge_list = [[(statement_nums{statement}, statement_nums[cell_to_statement[cell_dep]]) for cell_dep in get_cell_deps(statement)] for statement in statements]
     # edge_list = reduce(vcat, nested_edge_list)
 
     # graph = Graphs.SimpleDiGraphFromIterator(Edge.(edge_list))
@@ -1141,13 +1175,13 @@ function export_statements_levels(io::IO, exporter, wb::ExcelWorkbook, statement
             node = stmt_to_node[s]
             dependents = statements[inneighbors(stmt_graph, node)]
             if !isempty(dependents)
-                usages = if length(dependents) > 5
-                    "[" * join(to_string.((exporter,), dependents[1:4]), ", ") * ", ..., " * to_string(exporter, dependents[end]) * "]"
-                else
-                    "[" * join(to_string.((exporter,), dependents), ", ") * "]"
-                end
+                # usages = if length(dependents) > 5
+                #     "[" * join(to_string.((exporter,), dependents[1:4]), ", ") * ", ..., " * to_string(exporter, dependents[end]) * "]"
+                # else
+                #     "[" * join(to_string.((exporter,), dependents), ", ") * "]"
+                # end
                 # usages = "[" * join(to_string.((exporter,), dependents), ", ") * "]"
-                write(io, "# Used in $(length(dependents)) places: $usages\n")
+                # write(io, "# Used in $(length(dependents)) places: $usages\n")
             end
 
             write(io, export_statement(exporter, wb, s))
@@ -1718,10 +1752,15 @@ function look_for_functions(statements; min_intermediates = 3, max_inputs = 30)
                 push!(captured_stmts, s)
 
                 statement = statements[s]
-                func_statement = FunctionStatement(statement.assigned_var, statements[inputs], [statements[reverse(intermediate)]..., statement])
+                # function_statements = [statements[reverse(intermediate)]..., statement]
+                function_statements = Vector{AbstractStatement}(undef, length(intermediate) + 1)
+                function_statements[begin:(end-1)] .= statements[reverse(intermediate)]
+                function_statements[end] = statement
+                # push!(function_statements, statement)
+                func_statement = FunctionStatement(statement.assigned_var, statements[inputs], function_statements)
 
-                statement_group = [statement, statements[intermediate]...]
-                filter!(s -> !(s in statement_group), new_statements)
+                # statement_group = [statement, statements[intermediate]...]
+                filter!(s -> !(s in function_statements), new_statements)
                 push!(new_statements, func_statement)
             end
         end

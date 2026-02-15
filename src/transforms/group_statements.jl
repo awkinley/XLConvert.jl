@@ -1,6 +1,6 @@
 
-function try_smush_node(statements::Vector{AbstractStatement}, graph, topo_levels, node; visited = missing, debug = false)
-    max_level = maximum(values(topo_levels))
+function try_smush_node(statements::Vector{AbstractStatement}, graph, topo_levels, max_level, node; visited = missing, debug = false)
+    # max_level = maximum(values(topo_levels))
     # grouped_by_level = Dict((l => [kv.first for kv in topo_levels if kv.second == l]) for l in 0:max_level)
 
     start_level = topo_levels[node]
@@ -45,6 +45,9 @@ function try_smush_node(statements::Vector{AbstractStatement}, graph, topo_level
         was_visited = false
         for n in level_nodes
             dependencies = outneighbors(graph, n)
+            if debug
+                println("Node $n has $(length(dependencies)) dependents")
+            end
             for dep in dependencies
                 add_node(dep)
                 if !ismissing(visited)
@@ -341,7 +344,7 @@ function new_group_statements(statements::Vector{AbstractStatement}, graph, topo
                 continue
             end
 
-            compress_group = try_smush_node(statements, graph, topo_levels, node, visited = visited)
+            compress_group = try_smush_node(statements, graph, topo_levels, max_level, node, visited = visited)
             # @show node statements[node]
             if do_debug
                 @show compress_group
@@ -350,7 +353,7 @@ function new_group_statements(statements::Vector{AbstractStatement}, graph, topo
             # But because a group will generally introduce a scope, it's important that any values set inside that are available outside
             # This is true for table statements, since the table persists, but for other kinds of statements, the value won't persist
             # It also causes functions to have more parameters than needed
-            has_non_table_statement = any(n -> !isa(statements[n], TableStatement), @view compress_group[begin:end-1])
+            has_non_table_statement = any(n -> !isa(statements[n], TableStatement), @view compress_group[begin:(end-1)])
             if length(compress_group) > 10 && !has_non_table_statement
                 union!(visited, compress_group)
                 println("Found a group of $(length(compress_group)) nodes that can be smushed")
@@ -395,7 +398,7 @@ function debug_group_statements(statements::Vector{AbstractStatement}, set_cell:
     # stmt_graph = make_statement_graph(grouped)
     # stmt_topo_levels = get_topo_levels_bottom_up(stmt_graph)
     node = findfirst(s -> set_cell in get_set_cells(s), statements)
-    try_smush_node(statements, stmt_graph, stmt_topo_levels, node; debug = true)
+    try_smush_node(statements, stmt_graph, stmt_topo_levels, maximum(values(stmt_topo_levels)), node; debug = true)
     # debug_group_statements(statements, stmt_graph, stmt_topo_levels, node)
 
 end

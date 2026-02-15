@@ -44,6 +44,7 @@ export CellDependency,
     round_if_transform!,
     table_ref_transform!,
     table_broadcast_transform_2d!,
+    new_broadcast,
     make_statement_graph,
     group_statements,
     add_functions,
@@ -123,6 +124,7 @@ include("transforms/if_toggle.jl")
 include("transforms/round_if.jl")
 include("transforms/table_broadcast.jl")
 include("transforms/group_statements.jl")
+include("transforms/new_broadcast.jl")
 
 include("high_level_api.jl")
 
