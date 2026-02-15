@@ -174,3 +174,116 @@ function export_statement(exporter::JuliaExporter, wb::ExcelWorkbook, statement:
         """
     end
 end
+
+
+function export_statement(exporter::PythonExporter, wb::ExcelWorkbook, statement::TableStatement)
+    cell_ref = statement.assigned_vars[1]
+    sheet = cell_ref.sheet_name
+
+    lhs = try
+        convert(exporter, statement.lhs_expr, sheet)
+    catch e
+        @show statement.lhs_expr
+        throw(e)
+    end
+    expr = statement.rhs_expr
+
+    table, lhs_row_idx, lhs_col_idx = @match statement.lhs_expr begin
+        ExcelExpr(:table_ref, [table, row_idx, col_idx, _, _]) => (table, row_idx, col_idx)
+        _ => (missing, missing, missing)
+    end
+    if is_transposed(table)
+        (lhs_row_idx, lhs_col_idx) = (lhs_col_idx, lhs_row_idx)
+    end
+
+    function replace_func_params(expr, params_dict)
+        @match expr begin
+            ExcelExpr(:func_param, [param_num]) => get(params_dict, param_num, expr)
+            ExcelExpr(head, args) => ExcelExpr(head, map(e -> replace_func_params(e, params_dict), args)...)
+            _ => expr
+        end
+    end
+
+    if statement.is_broadcast
+
+        run_cells = sort(statement.assigned_vars)
+        if contains_if(expr)
+            function_expr, params = functionalize(expr)
+            typed_params = Dict{Int64, ExcelExpr}()
+            for param_num in eachindex(params)
+                param = params[param_num]
+                param_type = Any
+                try
+                    param_type = get_type(param, sheet, exporter.cell_types, exporter.named_values)
+                catch
+                end
+                typed_params[param_num] = ExcelExpr(:func_param, param_num, param_type)
+            end
+
+            function_expr = replace_func_params(function_expr, typed_params)
+
+            function make_function_string(function_name, function_expr, num_params)
+                params_str = join(["param_$i" for i in 1:num_params], ", ")
+                expr_str = convert(exporter, function_expr, sheet)
+                """
+                def $function_name($params_str):
+                    return $expr_str
+                """
+            end
+            function_name = "func_$(normalize_var_name(sheet))_$(run_cells[1].cell)_$(run_cells[end].cell)"
+            func_str = make_function_string(function_name, function_expr, length(params))
+            # convert(exporter, function_expr, sheet)
+            # params_strings = [xl_expr_to_julia(param_expr, ctx, var_names, tables) for param_expr in params]
+            params_strings = [convert(exporter, param_expr, sheet) for param_expr in params]
+            func_params = join(params_strings, ", ")
+            rhs = "$function_name($(func_params))"
+            # line = "$func_str@. $lhs = $rhs\n"
+            """
+            $func_str
+            $lhs = $rhs
+            """
+        else
+            try
+                rhs = convert(exporter, expr, sheet)
+            catch e
+                println("Failed to convert table rhs expr")
+                @show lhs
+                # @info "export table statement" sheet expr
+                show(stdout, "text/plain", expr)
+                throw(e)
+            end
+            """
+            # $(to_string(run_cells[1])):$(to_string(run_cells[end]))
+            $lhs = $rhs
+            """
+        end
+    else
+        row_str = ""
+        if !ismissing(table) && !ismissing(lhs_row_idx)
+            row_str = "Row: $(row_name(table, lhs_row_idx))"
+        end
+        try
+            rhs = convert(exporter, expr, sheet)
+        catch e
+            println("Failed to convert table rhs expr")
+            @show statement.assigned_vars
+            # @show expr
+            show(stdout, "text/plain", expr)
+            @show e
+            throw(e)
+        end
+        @assert length(statement.assigned_vars) == 1
+        xf = wb.xf
+        cell_ref = get_set_cells(statement)[1]
+
+        # "@assert xl_compare($lhs, $(repr(xf[string(cell_ref.sheet_name)][cell_ref.cell]))) # $(to_string(cell_ref))"
+        # "$lhs = $rhs # $(cell_ref.sheet_name) $(cell_ref.cell) $row_str\n"
+        # """
+        # $lhs = $rhs # $(cell_ref.sheet_name) $(cell_ref.cell) $row_str
+        # @assert xl_compare($lhs, $(repr(xf[string(cell_ref.sheet_name)][cell_ref.cell]))) # $(to_string(cell_ref))
+        # """
+        """
+        $lhs = $rhs # $(cell_ref.sheet_name) $(cell_ref.cell) $row_str
+        """
+    end
+end

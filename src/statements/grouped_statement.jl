@@ -75,7 +75,7 @@ function can_be_for_looped(expressions, row_offset, col_offset)
     true
 end
 
-function make_loop_idx_str(base_idx::Int, offset, fixed)
+function make_loop_idx_str(::JuliaExporter, base_idx::Int, offset, fixed)
     if offset == 0
         "$base_idx"
     elseif offset == 1
@@ -85,7 +85,17 @@ function make_loop_idx_str(base_idx::Int, offset, fixed)
     end
 end
 
-function make_loop_idx_str(base_idx::UnitRange{Int}, offset, fixed)
+function make_loop_idx_str(::PythonExporter, base_idx::Int, offset, fixed)
+    if offset == 0
+        "$base_idx"
+    elseif offset == 1
+        "$base_idx + i"
+    else
+        "$base_idx + (i * $offset)"
+    end
+end
+
+function make_loop_idx_str(::JuliaExporter, base_idx::UnitRange{Int}, offset, fixed)
     if offset == 0
         "$base_idx"
     elseif fixed == (false, false)
@@ -116,11 +126,60 @@ function make_loop_idx_str(base_idx::UnitRange{Int}, offset, fixed)
     end
 end
 
+function make_loop_idx_str(e::PythonExporter, base_idx::UnitRange{Int}, offset, fixed)
+    a = first(base_idx)
+    b = last(base_idx)
+    if length(base_idx) == 1
+        return make_loop_idx_str(e, first(base_idx), offset, fixed)
+    end
+
+    if offset == 0
+        "$base_idx"
+    elseif fixed == (false, false)
+        if offset == 1
+            "($a + i):($b + i)"
+        else
+            "($a + i * $offset):($b + i * $offset)"
+        end
+    else
+        left = string(a)
+        if !fixed[1]
+            if offset == 1
+                left *= " + i"
+            else
+                left *= " + (i * $offset)"
+            end
+        end
+
+        right = string(last(base_idx))
+        if !fixed[2]
+            if offset == 1
+                right *= " + i"
+            else
+                right *= " + (i * $offset)"
+            end
+        end
+        "($left):($right)"
+    end
+end
+
 struct CustomFuncParamHandler
     value_getter::Any
 end
 
 function handle(handler::CustomFuncParamHandler, expr, exporter::JuliaExporter, ctx)
+    @match expr begin
+        ExcelExpr(:func_param, [param_num]) => begin
+            handler.value_getter(param_num, exporter, ctx)
+        end
+        ExcelExpr(:func_param, [param_num, type]) => begin
+            handler.value_getter(param_num, exporter, ctx)
+        end
+        _ => missing
+    end
+end
+
+function handle(handler::CustomFuncParamHandler, expr, exporter::PythonExporter, ctx)
     @match expr begin
         ExcelExpr(:func_param, [param_num]) => begin
             handler.value_getter(param_num, exporter, ctx)
@@ -226,7 +285,7 @@ function can_loop_stmts(statements::AbstractArray{AbstractStatement}, functional
     if !all(x -> can_be_for_looped(x, row_offset, col_offset) == true, eachcol(params[:, changing_params]))
         # println("Failed because a changing parameter couldn't be for looped")
         reasons = map(x -> can_be_for_looped(x, row_offset, col_offset), eachcol(params[:, changing_params]))
-        return CantLoop("A changing parameter couldn't be for looped, \n$(reasons)")
+        return CantLoop("A changing parameter couldn't be for looped, $(reasons)")
         # return false
     end
 
@@ -270,8 +329,8 @@ function export_looped(exporter::JuliaExporter, wb::ExcelWorkbook, statements)
 
     table, row_idx, col_idx, row_fixed, col_fixed = lhs_expr.args
 
-    row_str = make_loop_idx_str(row_idx, row_offset, row_fixed)
-    col_str = make_loop_idx_str(col_idx, col_offset, col_fixed)
+    row_str = make_loop_idx_str(exporter, row_idx, row_offset, row_fixed)
+    col_str = make_loop_idx_str(exporter, col_idx, col_offset, col_fixed)
     lhs_str = "$(getname(table))[$row_str, $col_str]"
     # println("\t$str")
 
@@ -279,8 +338,8 @@ function export_looped(exporter::JuliaExporter, wb::ExcelWorkbook, statements)
         if param_num in changing_params
             param_expr = params[1, param_num]
             table, row_idx, col_idx, row_fixed, col_fixed = param_expr.args
-            row_str = make_loop_idx_str(row_idx, row_offset, row_fixed)
-            col_str = make_loop_idx_str(col_idx, col_offset, col_fixed)
+            row_str = make_loop_idx_str(exporter, row_idx, row_offset, row_fixed)
+            col_str = make_loop_idx_str(exporter, col_idx, col_offset, col_fixed)
             # @show col_idx col_offset, col_fixed
             "$(getname(table))[$row_str, $col_str]"
         else
@@ -321,6 +380,220 @@ function export_looped(exporter::JuliaExporter, wb::ExcelWorkbook, statements)
     for i in 0:$(length(statements) - 1)
     \t$lhs_str = $rhs_str
     end
+    """
+end
+
+part_to_workbook_range(expr::XLConvert.FlatExpr, i::FlatIdx) = part_to_workbook_range(expr, i.i)
+function part_to_workbook_range(expr::XLConvert.FlatExpr, i::Int32)
+    part = expr.parts[i]
+
+    if @ismatch part ExcelExpr(:sheet_ref, [sheet, sub_i])
+        return part_to_workbook_range(expr, sub_i)
+    end
+
+    @match part begin
+        ExcelExpr(:range, [FlatIdx(lhs_i), FlatIdx(rhs_i)]) => begin
+            lhs_expr = expr.parts[lhs_i]
+            rhs_expr = expr.parts[rhs_i]
+            if !((lhs_expr.head == :cell_ref) && (rhs_expr.head == :cell_ref))
+                # throw("Don't know how to get dependencies because of a range expression without cell refs. i = $i. lhs_expr = $(lhs_expr.head), rhs_expr = $(rhs_expr.head)")
+                @show lhs_expr rhs_expr
+                return nothing
+            end
+            sheet = lhs_expr.args[2]
+            if (sheet != rhs_expr.args[2])
+                throw("Don't know how to get dependencies because of a range expression that doesn't share a cell. i = $i")
+            end
+
+            lhs = lhs_expr.args[1]
+            rhs = rhs_expr.args[1]
+
+            WorkbookRegion(CellDependency(sheet, lhs), CellDependency(sheet, rhs))
+        end
+        ExcelExpr(:table_ref, [table, row_idx, col_idx, fixed_row, fixed_col]) => begin
+            start_cell = CellDependency(table.sheet_name, startcol(table) + first(col_idx) - 1, startrow(table) + first(row_idx) - 1)
+            end_cell = CellDependency(table.sheet_name, startcol(table) + last(col_idx) - 1, startrow(table) + last(row_idx) - 1)
+
+            WorkbookRegion(start_cell, end_cell) 
+        end
+        _ => nothing
+    end
+end
+
+function look_for_xlookups(expr::FlatExpr)
+
+    for (i, part) in enumerate(expr.parts)
+        # i in handled && continue
+
+        @match part begin
+            ExcelExpr(:call, ["_xlfn.XLOOKUP", FlatIdx(val), FlatIdx(ref_range), FlatIdx(value_range)]) => begin
+                ref_part = expr.parts[ref_range]
+                value_part = expr.parts[value_range]
+
+                if value_part.head != :table_ref
+                    continue
+                end
+
+                # if ref_part.head != :table_ref
+                #     continue
+                # end
+
+
+                # table = ref_part.args[1]
+                # row_idx, col_idx = ref_part.args[2:3]
+                value_row_idx, value_col_idx = value_part.args[2:3]
+
+                ref_region = part_to_workbook_range(expr, ref_range)
+                # @show ref_range
+                # @show ref_region
+                if isnothing(ref_region)
+                    continue
+                end
+
+                if size(ref_region)[2] != 1 || length(value_col_idx) != 1
+                    @show value_row_idx
+                    if size(ref_region)[1] != 1
+                        continue
+                    end
+
+                    println("Found an xlookup that could probably be a column lookup")
+                    # @show expr.parts[val] ref_part value_part
+
+                    value_tbl = value_part.args[1]
+                    if !(':' in value_tbl.column_names_range)
+                        continue
+                    end
+                    # @show value_tbl.column_names_range
+                    col_start, col_end = split(value_tbl.column_names_range, ":")
+                    table_cols_region = WorkbookRegion(value_tbl.sheet_name, col_start, col_end)
+
+                    # r = startrow(table) + first(row_idx) - 1
+                    # c = startcol(table) + first(col_idx) - 1
+                    # ref_col_region = WorkbookRegion(CellDependency(table.sheet_name, startcol(table) + first(col_idx) - 1, r), CellDependency(table.sheet_name, startcol(table) + first(col_idx) - 1, r)) 
+                    # @show ref_col_region table_cols_region
+                    # @show table.row_names_range
+                    if ref_region in table_cols_region
+                        println("Ref's a column!")
+                        # @show expr.parts[val] ref_part value_part
+                        expr.parts[i] = ExcelExpr(:table_ref_col, Any[value_tbl, value_row_idx, FlatIdx(val)])
+                    end
+
+
+                else
+
+
+                    # if ref_part.args[1] != value_part.args[1]
+                    #     continue
+                    # end
+ 
+                    # println("Found an xlookup that could probably be an indexed lookup")
+                    # @show expr.parts[val] ref_part value_part
+
+
+                    value_tbl = value_part.args[1]
+                    if !(':' in value_tbl.row_names_range)
+                        continue
+                    end
+                    row_start, row_end = split(value_tbl.row_names_range, ":")
+                    table_rows_region = WorkbookRegion(value_tbl.sheet_name, row_start, row_end)
+                    # @show ref_region table_rows_region
+
+                    # c = startcol(table) + first(col_idx) - 1
+
+                    # ref_row_str = cell_str(CellDependency(table.sheet_name, c, startrow(table) + row_idx[1] - 1)) * ":" * cell_str(CellDependency(table.sheet_name, c, startrow(table) + row_idx[end] - 1)) 
+                    # @show ref_row_str
+                    # @show table.row_names_range
+                    # if table.row_names_range === ref_row_str
+                    if table_rows_region == ref_region
+                        println("Ref's on name row!")
+                        # @show expr.parts[val] ref_part value_part
+                        expr.parts[i] = ExcelExpr(:table_ref_idx, Any[value_tbl, FlatIdx(val), first(value_col_idx)])
+                    end
+                end
+
+
+
+            end
+            _ => continue
+        end
+    end
+end
+
+function export_looped(exporter::PythonExporter, wb::ExcelWorkbook, statements)
+    funcs_and_params = [functionalize(s.rhs_expr) for s in statements]
+    func = funcs_and_params[1][1]
+
+    params = reduce(vcat, [a[2] for a in funcs_and_params])
+    param_sets = unique.(eachcol(params))
+    fixed_params = findall(length.(param_sets) .== 1)
+    changing_params = findall(length.(param_sets) .!= 1)
+
+
+    set_cells = get_set_cells.(statements)
+    row_nums = map(s -> rownum(s[1]), set_cells)
+    col_nums = map(s -> colnum(s[1]), set_cells)
+    drow = diff(row_nums)
+    dcol = diff(col_nums)
+    row_offset = drow[1]
+    col_offset = dcol[1]
+    lhs_exprs = map(s -> s.lhs_expr, statements)
+
+    lhs_expr = lhs_exprs[1]
+
+    table, row_idx, col_idx, row_fixed, col_fixed = lhs_expr.args
+
+    row_str = make_loop_idx_str(exporter, row_idx, row_offset, row_fixed)
+    col_str = make_loop_idx_str(exporter, col_idx, col_offset, col_fixed)
+    lhs_str = "$(getname(table)).at[$row_str, $col_str]"
+    # println("\t$str")
+
+    function get_param_str(param_num, exporter, ctx)
+        if param_num in changing_params
+            param_expr = params[1, param_num]
+            table, row_idx, col_idx, row_fixed, col_fixed = param_expr.args
+            row_str = make_loop_idx_str(exporter, row_idx, row_offset, row_fixed)
+            col_str = make_loop_idx_str(exporter, col_idx, col_offset, col_fixed)
+            # @show col_idx col_offset, col_fixed
+            "$(getname(table)).loc[$row_str, $col_str]"
+        else
+            throw("Tried to get param_str for param_num $param_num, but it wasn't a changing param")
+        end
+    end
+
+    fixed_params_dict = Dict(fixed_params .=> map(v -> v[1], param_sets[fixed_params]))
+    # println("Inserting fixed params")
+    # @show fixed_params_dict
+
+    # println("Original expr")
+    # show(stdout, "text/plain", statements[1].rhs_expr)
+    # println("Before replacing func params")
+    # show(stdout, "text/plain", func)
+    rhs_expr = replace_func_params(func, fixed_params_dict)
+    # println("After replacing func params")
+    # show(stdout, "text/plain", func)
+
+    typed_params = Dict{Int64, ExcelExpr}()
+    # @show changing_params
+    for param_num in changing_params
+        all_exprs = params[:, param_num]
+        # @show all_exprs
+        param_type = reduce(union_types, map(e -> get_type(e, table.sheet_name, exporter.cell_types, exporter.named_values), all_exprs))
+        typed_params[param_num] = ExcelExpr(:func_param, param_num, param_type)
+    end
+    # println("Before replacing func params")
+    # show(stdout, "text/plain", rhs_expr)
+    rhs_expr = replace_func_params(rhs_expr, typed_params)
+    look_for_xlookups(rhs_expr)
+    # println("After replacing func params")
+    # show(stdout, "text/plain", rhs_expr)
+
+    custom_handler = CustomFuncParamHandler(get_param_str)
+    custom_exporter = PythonExporter(exporter.wb, exporter.var_names, exporter.tables, exporter.named_values, [custom_handler, exporter.handlers...], exporter.cell_types)
+    rhs_str = convert(custom_exporter, rhs_expr, table.sheet_name)
+    """
+    for i in range($(length(statements))):
+    \t$lhs_str = $rhs_str
+
     """
 end
 
@@ -441,7 +714,7 @@ function get_loop_end(statements_in::AbstractArray{AbstractStatement}, functiona
     return length(statements_in)
 end
 
-function export_with_for_loops(exporter::JuliaExporter, wb::ExcelWorkbook, statement::GroupedStatement)
+function export_with_for_loops(exporter, wb::ExcelWorkbook, statement::GroupedStatement)
     sub_statements = statement.sub_statements
     lines = Vector{String}()
 
@@ -490,48 +763,63 @@ function export_with_for_loops(exporter::JuliaExporter, wb::ExcelWorkbook, state
         push!(can_loop_ranges, last_idx:i)
         last_idx = i + 1
     end
-    # if can_loop_stmts(sub_statements, functionalized) == true
-    #     push!(can_loop_ranges, 1:length(sub_statements))
-    # else
 
-    #     for i in 2:length(sub_statements)
-    #         # @show i
-    #         can_loop = can_loop_stmts(@view(sub_statements[last_idx:i]), @view(functionalized[last_idx:i]))
-    #         if can_loop != true
-    #             # println("Sub Statements[1]")
-    #             # show(stdout, "text/plain", sub_statements[1].rhs_expr)
-    #             # println("functionalized[1]")
-    #             # show(stdout, "text/plain", functionalized[1][1])
-    #             # println(functionalized[1][2])
-    #             # println("$name: couldn't for loop at i = $i because $(can_loop.reason)")
-    #             # throw(can_loop.reason)
-    #             @assert get_loop_end(sub_statements, functionalized, last_idx) == (i - 1)
-    #             push!(can_loop_ranges, last_idx:(i-1))
-    #             last_idx = i
-    #         end
-    #     end
-    #     @assert get_loop_end(sub_statements, functionalized, last_idx) == length(sub_statements)
-    #     push!(can_loop_ranges, last_idx:length(sub_statements))
-    # end
-    # @show last_idx
-    # @show can_loop_ranges
 
-    name = get_function_name(exporter, statement)
-    for stmt_indices in can_loop_ranges
-        if length(stmt_indices) == 1
-            push!(lines, export_statement(exporter, wb, sub_statements[first(stmt_indices)]))
-        else
-            println("$name: looping $(length(stmt_indices)) statements")
-            push!(lines, export_looped(exporter, wb, sub_statements[stmt_indices]))
+    if length(can_loop_ranges) == length(sub_statements)
+        msg = can_loop_stmts(@view(sub_statements[1:2]), @view(functionalized[1:2])).reason
+        push!(lines, "# Can't loop because $msg\n")
+    end
+
+    unique_funcs = unique(map(s -> isnothing(s) ? s : s[1], functionalized))
+    if !any(isnothing, functionalized) && length(unique_funcs) == 1
+        params = reduce(vcat, map(s -> s[2], functionalized))
+        params_str = join(["param_$i" for i in axes(params, 2)], ", ")
+        push!(lines, "def func($params_str):\n")
+        push!(lines, "\treturn " * convert(exporter, first(collect(unique_funcs)), "") * "\n\n")
+
+        name = get_function_name(exporter, statement)
+        for stmt_indices in can_loop_ranges
+            if length(stmt_indices) == 1
+                # params_strings = [convert(exporter, param_expr, sheet) for param_expr in params[first(stmt_indices), :]]
+                params_strings = [convert(exporter, param_expr, "") for param_expr in params[first(stmt_indices), :]]
+                func_params = join(params_strings, ", ")
+                rhs = "func($(func_params))"
+
+                lhs = try
+                    convert(exporter, sub_statements[stmt_indices[1]].lhs_expr, "")
+                catch e
+                    @show statement.lhs_expr
+                    throw(e)
+                end
+                push!(lines, "$lhs = $rhs\n")
+                # push!(lines, export_statement(exporter, wb, sub_statements[first(stmt_indices)]))
+            else
+                println("$name: looping $(length(stmt_indices)) statements")
+                push!(lines, export_looped(exporter, wb, sub_statements[stmt_indices]))
+            end
+        end
+
+    else
+
+        name = get_function_name(exporter, statement)
+        for stmt_indices in can_loop_ranges
+            if length(stmt_indices) == 1
+
+                push!(lines, export_statement(exporter, wb, sub_statements[first(stmt_indices)]))
+            else
+                println("$name: looping $(length(stmt_indices)) statements")
+                push!(lines, export_looped(exporter, wb, sub_statements[stmt_indices]))
+            end
         end
     end
+
 
     # @show lines
 
     reduce(*, lines)
 end
 
-function try_make_for_loop(exporter::JuliaExporter, wb::ExcelWorkbook, statement::GroupedStatement)
+function try_make_for_loop(exporter::T, wb::ExcelWorkbook, statement::GroupedStatement) where T
     sub_statements = statement.sub_statements
 
     function_usages = Dict()
@@ -624,7 +912,7 @@ function try_make_for_loop(exporter::JuliaExporter, wb::ExcelWorkbook, statement
     rhs_expr = replace_func_params(rhs_expr, typed_params)
 
     custom_handler = CustomFuncParamHandler(get_param_str)
-    custom_exporter = JuliaExporter(exporter.wb, exporter.var_names, exporter.tables, exporter.named_values, [custom_handler, exporter.handlers...], exporter.cell_types)
+    custom_exporter = T(exporter.wb, exporter.var_names, exporter.tables, exporter.named_values, [custom_handler, exporter.handlers...], exporter.cell_types)
     rhs_str = convert(custom_exporter, rhs_expr, table.sheet_name)
     """
     for i in 0:$(length(usage_stmts) - 1)
@@ -633,7 +921,7 @@ function try_make_for_loop(exporter::JuliaExporter, wb::ExcelWorkbook, statement
     """
 end
 
-function get_grouped_statement_body(exporter::JuliaExporter, wb::ExcelWorkbook, statement::GroupedStatement)
+function get_grouped_statement_body(exporter, wb::ExcelWorkbook, statement::GroupedStatement)
     export_with_for_loops(exporter, wb, statement)
     # try
     #     body = try_make_for_loop(exporter, wb, statement)
@@ -648,17 +936,14 @@ function get_grouped_statement_body(exporter::JuliaExporter, wb::ExcelWorkbook, 
     # body
 end
 
-function get_function_name(exporter::JuliaExporter, statement::GroupedStatement)
-    needed_vars = get_cell_deps(statement)
-
-    scope_vars = get_required_scope_vars(exporter.tables, exporter.var_names, needed_vars)
+function get_function_name(exporter, statement::GroupedStatement)
     cell_for_naming = get_set_cells(statement)[end]
     function_name = "group_calculate_$(normalize_var_name(cell_for_naming.sheet_name))_$(cell_for_naming.cell)"
 
     function_name
 end
 
-function get_params_str(exporter::JuliaExporter, statement::GroupedStatement)
+function get_params_str(exporter, statement::GroupedStatement)
     needed_vars = get_cell_deps(statement)
 
     table_sub_stmts = filter(s -> s isa TableStatement, statement.sub_statements)
@@ -707,6 +992,31 @@ function get_function_string(exporter::JuliaExporter, wb::ExcelWorkbook, stateme
     end"""
 end
 
+function get_function_string(exporter::PythonExporter, wb::ExcelWorkbook, statement::GroupedStatement)
+    table_sub_stmts = filter(s -> s isa TableStatement, statement.sub_statements)
+    if length(table_sub_stmts) != length(statement.sub_statements)
+        return nothing
+    end
+
+    if length(unique(get_set_table.(table_sub_stmts))) != 1
+        return nothing
+    end
+
+    function_name = get_function_name(exporter, statement)
+    params_str = get_params_str(exporter, statement)
+
+    middle_lines = get_grouped_statement_body(exporter, wb, statement)
+
+    lines = split(middle_lines, "\n")
+    function_inner = join(["\t" * l for l in lines], "\n")
+
+    """
+    def $function_name($params_str):
+    $function_inner
+
+    """
+end
+
 function export_statement(exporter::JuliaExporter, wb::ExcelWorkbook, statement::GroupedStatement)
     set_cells = get_set_cells(statement)
     out_var_exprs = [ExcelExpr(:cell_ref, Any[cell.cell, cell.sheet_name]) for cell in set_cells]
@@ -730,6 +1040,50 @@ function export_statement(exporter::JuliaExporter, wb::ExcelWorkbook, statement:
         begin
         $middle_lines\
         end
+        """
+    else
+        # needed_vars = get_cell_deps(statement)
+
+        # intermediate_vars = unique(reduce(vcat, get_set_cells.(statement.sub_statements)))
+        # filter!(v -> !(v in intermediate_vars), needed_vars)
+
+        # scope_vars = get_required_scope_vars(exporter.tables, exporter.var_names, needed_vars)
+        # cell_for_naming = get_set_cells(statement)[end]
+        # function_name = "group_calculate_$(normalize_var_name(cell_for_naming.sheet_name))_$(cell_for_naming.cell)"
+        function_name = get_function_name(exporter, statement)
+        # params_str = join(scope_vars, ", ")
+        params_str = get_params_str(exporter, statement)
+
+        """
+        $function_name($params_str)
+        $(assert_lines)
+        """
+    end
+end
+
+
+function export_statement(exporter::PythonExporter, wb::ExcelWorkbook, statement::GroupedStatement)
+    set_cells = get_set_cells(statement)
+    out_var_exprs = [ExcelExpr(:cell_ref, Any[cell.cell, cell.sheet_name]) for cell in set_cells]
+    out_var_exprs = map(Base.Fix2(insert_table_refs, exporter.tables), out_var_exprs)
+
+    variable_names = [convert(exporter, e, "") for e in out_var_exprs]
+
+    xf = wb.xf
+    assert_lines = ""
+    # for (cell_ref, name) in zip(set_cells, variable_names)
+    #     assert_lines *= "@assert xl_compare($name, $(repr(xf[string(cell_ref.sheet_name)][cell_ref.cell]))) # $(to_string(cell_ref))\n"
+    # end
+
+
+    table_sub_stmts = filter(s -> s isa TableStatement, statement.sub_statements)
+    if length(table_sub_stmts) != length(statement.sub_statements) || length(unique(get_set_table.(table_sub_stmts))) != 1
+        # middle_lines = reduce(*, [export_statement(exporter, wb, s) for s in statement.sub_statements])
+        middle_lines = get_grouped_statement_body(exporter, wb, statement)
+        """
+        # Group of $(length(statement.sub_statements)) statements
+        $middle_lines
+
         """
     else
         # needed_vars = get_cell_deps(statement)

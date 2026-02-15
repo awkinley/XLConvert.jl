@@ -37,6 +37,9 @@ export CellDependency,
     get_topo_levels_top_down,
     get_expr,
     get_type,
+    group_to_dict,
+    get_set_cells,
+    get_cell_deps,
     DefTable,
     make_statements,
     if_multiple_transform!,
@@ -55,6 +58,7 @@ export CellDependency,
     TableRefHandler,
     EverythingElseHandler,
     JuliaExporter,
+    PythonExporter,
     write_file,
     getdatatype,
     named_range_to_cell,
@@ -112,6 +116,7 @@ include("cell_dependency.jl")
 include("excel_table.jl")
 include("excel_workbook.jl")
 include("export_julia.jl")
+include("export_python.jl")
 include("common_subexpr_elim.jl")
 include("statement.jl")
 include("workbook_subset.jl")

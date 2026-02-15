@@ -351,7 +351,7 @@ function DefTable(xf::XLSX.XLSXFile, sheet_name, table_name, top_left, bottom_ri
             if ismissing(column_names[i])
                 column_names[i] = "missing_$(i)"
             elseif column_names[i] in column_names[begin:(i-1)]
-                column_names[i] *= "_" * XLSX.encode_column_number(startcol)
+                column_names[i] *= "_" * XLSX.encode_column_number(startcol + i - 1)
             end
         end
     else
@@ -807,9 +807,7 @@ function renumber_levels!(grouped_by_level)
 end
 
 function find_table_containing_cell(cell::CellDependency, tables)
-    r = rownum(cell)
-    c = colnum(cell)
-    findfirst(t -> cell.sheet_name == t.sheet_name && ((r, c) in t), tables)
+    findfirst(t -> cell in t, tables)
 end
 
 
@@ -1229,7 +1227,33 @@ function get_input_comment(exporter::JuliaExporter, statements::AbstractArray{Ab
     comment
 end
 
-function make_input_struct(exporter::JuliaExporter, statements::AbstractArray{AbstractStatement})
+function get_input_comment(exporter::PythonExporter, statements::AbstractArray{AbstractStatement}, stmt_graph, statement_num)
+    usages = inneighbors(stmt_graph, statement_num)
+
+    num_children = length(usages)
+    comment = "used in $num_children statements"
+    # if num_children == 1
+    for usage in usages
+
+        child_stmt = statements[usage]
+        output_cells = join([exporter.var_names[c] for c in get_set_cells(child_stmt)], ", ")
+        if length(output_cells) > 80
+            output_cells = output_cells[1:77] * "..."
+        end
+        comment *= ", [" * output_cells * "]"
+
+    end
+    # end
+
+    # for stmt_i in usages
+    #     stmt = statements[stmt_i]
+
+    # end
+
+    comment
+end
+
+function make_input_struct(exporter, statements::AbstractArray{AbstractStatement})
     stmt_graph = make_statement_graph(statements)
 
     stmt_topo_levels_bottom_up = get_topo_levels_bottom_up(stmt_graph)
@@ -1320,6 +1344,77 @@ function make_dataframe_declaration(exporter::JuliaExporter, wb::ExcelWorkbook, 
     # col_names = [column_name(table, c) for c in 1:num_cols]
     # line_str = "\t$lhs = DataFrame(Base.convert(Matrix{Any}, zeros($num_rows, $num_cols)), [$(join(repr.(col_names), ", "))])"
     line_str = "\t$lhs = DataFrame($(join(col_defs, ", ")))"
+    # line_str = "\t$lhs = Base.convert(Matrix{Any}, zeros($num_rows, $num_cols))"
+
+    line_str
+end
+
+function make_dataframe_declaration(exporter::PythonExporter, wb::ExcelWorkbook, table::ExcelTable)
+    lhs = getname(table)
+    num_rows, num_cols = size(table)
+
+    sheet = table.sheet_name
+    # println(getname(table))
+
+    col_defs = Vector{String}()
+    sizehint!(col_defs, num_cols)
+    if is_transposed(table)
+        start_r = startrow(table)
+        for r in startrow(table):endrow(table)
+            col_cells = [CellDependency(sheet, c, r) for c in startcol(table):endcol(table)]
+
+            # types = reduce(union_types, [get(exporter.cell_types, c, Missing) for c in col_cells])
+            # col_values = if types == Missing
+            #     "Vector{Missing}(missing, $num_rows)"
+            # elseif types == Float64
+            #     "zeros($num_rows)"
+            # elseif types == Any
+            #     "Vector{Any}(missing, $num_rows)"
+            # elseif types isa DataType
+            #     "Vector{Union{$types, Missing}}(missing, $num_rows)"
+            # else
+            #     push!(types, Missing)
+
+            #     "Vector{Union{$(join(string.(types),","))}}(missing, $num_rows)"
+            # end
+
+            col_name = column_name(table, r - start_r + 1)
+            # col_def = "$(repr(col_name)) => fill!(Vector{$type_str}(undef, $num_rows), $initial_value)"
+            col_def = "$(repr(col_name)): $col_values"
+            push!(col_defs, col_def)
+            # println("Col: $col_name type: $(types)")
+        end
+    else
+        start_c = startcol(table)
+        for c in startcol(table):endcol(table)
+            col_cells = [CellDependency(sheet, c, r) for r in startrow(table):endrow(table)]
+
+            # types = reduce(union_types, [get(exporter.cell_types, c, Missing) for c in col_cells])
+            # col_values = if types == Missing
+            #     "Vector{Missing}(missing, $num_rows)"
+            # elseif types == Float64
+            #     "zeros($num_rows)"
+            # elseif types == Any
+            #     "Vector{Any}(missing, $num_rows)"
+            # elseif types isa DataType
+            #     "Vector{Union{$types, Missing}}(missing, $num_rows)"
+            # else
+            #     push!(types, Missing)
+
+            #     "Vector{Union{$(join(string.(types),","))}}(missing, $num_rows)"
+            # end
+
+            col_name = column_name(table, c - start_c + 1)
+            # col_def = "$(repr(col_name)) => fill!(Vector{$type_str}(undef, $num_rows), $initial_value)"
+            # col_def = "$(repr(col_name)): $col_values"
+            col_def = "$(repr(col_name)): np.zeros($num_rows)"
+            push!(col_defs, col_def)
+            # println("Col: $col_name type: $(types)")
+        end
+    end
+    # col_names = [column_name(table, c) for c in 1:num_cols]
+    # line_str = "\t$lhs = DataFrame(Base.convert(Matrix{Any}, zeros($num_rows, $num_cols)), [$(join(repr.(col_names), ", "))])"
+    line_str = "\t$lhs = pd.DataFrame({$(join(col_defs, ",\n\t"))})"
     # line_str = "\t$lhs = Base.convert(Matrix{Any}, zeros($num_rows, $num_cols))"
 
     line_str
@@ -1423,6 +1518,183 @@ function make_input_table_struct(exporter::JuliaExporter, wb::ExcelWorkbook, sta
     push!(lines, "end")
 
     join(lines, "\n")
+end
+
+function make_input_table_struct(exporter::PythonExporter, wb::ExcelWorkbook, statements::AbstractArray{AbstractStatement})
+    tables = exporter.tables
+
+    lines = Vector{String}()
+
+    struct_names = getname.(tables)
+    # var_types = repeat(["Matrix"], length(tables))
+    var_types = repeat(["pd.DataFrame"], length(tables))
+    struct_def = make_struct(exporter, "Tables", struct_names; var_types = var_types)
+    push!(lines, struct_def)
+
+    input_statements = get_input_statements(statements)
+    input_table_stmts = filter(s -> s isa TableStatement, input_statements)
+    grouped_by_set_table = group_to_dict(input_table_stmts, get_set_table)
+    push!(lines, "def make_input_tables():")
+
+    for table in tables
+        push!(lines, make_dataframe_declaration(exporter, wb, table))
+        # lhs = getname(table)
+        # num_rows, num_cols = size(table)
+        # col_names = [column_name(table, c) for c in 1:num_cols]
+        # # line_str = "\t$lhs = DataFrame(Base.convert(Matrix{Any}, zeros($num_rows, $num_cols)), [$(join(repr.(col_names), ", "))])"
+        # line_str = "\t$lhs = Base.convert(Matrix{Any}, zeros($num_rows, $num_cols))"
+        # push!(lines, line_str)
+        # write(output_file, line_str * "\n")
+    end
+    push!(lines, "")
+
+    for table in tables
+        if !(table in keys(grouped_by_set_table))
+            continue
+        end
+        group = grouped_by_set_table[table]
+
+        sort!(group, by = s -> get_set_cells(s)[1])
+
+        get_row_num = s -> rownum(s.assigned_vars[1])
+        get_col_num = s -> colnum(s.assigned_vars[1])
+
+        row_nums = get_row_num.(group)
+        col_nums = get_col_num.(group)
+        coords = zip(col_nums, row_nums) |> collect
+        coord_to_statement = Dict(c => s for (c, s) in zip(coords, group))
+        regions = get_2d_regions(coords)
+        for region in regions
+            cols, rows = region
+            region_coords = vec([(c, r) for c in cols, r in rows])
+
+            if length(region_coords) < 3
+                for c in region_coords
+                    s = coord_to_statement[c]
+                    string = export_statement(exporter, wb, s)
+                    push!(lines, indent(rstrip(string), 1))
+                end
+            else
+                region_statements = map(c -> coord_to_statement[c], region_coords)
+
+                first_statement = region_statements[1]
+
+                lhs = convert_to_broadcasted(first_statement.lhs_expr, length(rows) - 1, length(cols) - 1)
+                # stmts = Matrix{AbstractStatement}(undef, length(rows), length(cols))
+                stmts = [coord_to_statement[(c, r)] for r in rows, c in cols]
+                convert_stmt = s -> convert(exporter, s.rhs_expr, table.sheet_name)
+                stmt_strs = convert_stmt.(stmts)
+                # rhs_strings = map(s -> convert(exporter, s.rhs_expr, table.sheet_name), region_statements)
+                joined = if length(cols) > 1
+                    join(map(v -> join(v, " "), eachrow(stmt_strs)), ";")
+                else
+                    join(vec(stmt_strs), ", ")
+                end
+                # joined = join(map(v -> join(v, " "), eachrow(stmt_strs)), ";")
+                # joined = join(rhs_strings, ", ")
+                rhs_str = "[$joined]"
+                lhs_str = convert(exporter, lhs, table.sheet_name)
+                str = "$lhs_str = $rhs_str"
+                push!(lines, indent(str, 1))
+            end
+        end
+        # get_set_cells.(group)
+
+
+        # for s in group
+        #     string = export_statement(exporter, wb, s)
+        #     push!(lines, indent(rstrip(string), 1))
+        # end
+
+    end
+    push!(lines, "")
+
+    push!(lines, "\tTables(")
+    for table in tables
+        push!(lines, "\t\t" * getname(table) * ",")
+    end
+
+    # push!(lines, "\t)")
+    # push!(lines, "end")
+
+    join(lines, "\n")
+end
+
+function write_file(exporter::PythonExporter, file_name::AbstractString, wb::ExcelWorkbook, statements::AbstractArray{AbstractStatement})
+    output_file = open(file_name, "w")
+
+    write(output_file, "import pandas as pd\n")
+    # write(output_file, "using DataFrames\n\n")
+    # write(output_file, "using Dates\n\n")
+    # write(
+    #     output_file,
+    #     """
+    #     function if_multiple(dividend, divisor, value)
+    #     xl_compare(xl_mod(dividend, divisor), 0) ? value : 0.0
+    #     end
+
+    #     """,
+    # )
+    for func_stmt in filter(s -> s isa FunctionStatement, statements)
+        write(output_file, get_function_string(exporter, wb, func_stmt), "\n")
+    end
+    for group_stmt in filter(s -> s isa GroupedStatement, statements)
+        func_str = get_function_string(exporter, wb, group_stmt)
+        if !isnothing(func_str)
+            write(output_file, func_str, "\n")
+        end
+    end
+
+    for out_stmt in filter(s -> s isa OutputStatement, statements)
+        write(output_file, make_outupt_struct(exporter, wb, out_stmt))
+    end
+
+    input_struct_str, input_struct_vars = make_input_struct(exporter, statements)
+    write(output_file, input_struct_str)
+
+    write(output_file, make_input_table_struct(exporter, wb, statements), "\n")
+
+    write(output_file, "def calculate(inputs:Inputs, tables:Tables)\n")
+
+    for table in exporter.tables
+        lhs = getname(table)
+        write(output_file, "$lhs = tables.$lhs\n")
+    end
+
+    starting_var_names = copy(exporter.var_names)
+
+    reverse_var_names = Dict(values(exporter.var_names) .=> keys(exporter.var_names))
+
+    for var in input_struct_vars
+        cell_ref = reverse_var_names[var]
+
+        # @info "making var have input before it" cell_ref var
+
+        exporter.var_names[cell_ref] = "inputs.$var"
+        # println("Var name for $cell_ref is $(exporter.var_names[cell_ref])")
+        # @show cell_ref exporter.var_names[cell_ref]
+    end
+
+
+    export_statements(output_file, exporter, wb, statements)
+
+    filter!(p -> false, exporter.var_names)
+    for (k, v) in starting_var_names
+        exporter.var_names[k] = v
+    end
+
+    write(output_file, "end\n")
+    # write(output_file, "\ncalculate()")
+
+    # run_str = """function run_crest_solar()
+    #     inputs = Inputs()
+    #     tables = make_input_tables()
+    #     calculate(inputs, tables)
+    # end"""
+    # write(output_file, "\n", run_str, "\n")
+
+
+    close(output_file)
 end
 
 function write_file(exporter::JuliaExporter, file_name::AbstractString, wb::ExcelWorkbook, statements::AbstractArray{AbstractStatement})

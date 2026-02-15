@@ -209,6 +209,7 @@ function group_statements(statements::Vector{AbstractStatement}, graph, topo_lev
             return false, missing, node_level
         end
 
+
         if isempty(dependencies)
             # Technically, if the node was at a non-zero level, it could be
             # freely moved down, but I'm not sure why that would be desirable
@@ -336,6 +337,7 @@ function new_group_statements(statements::Vector{AbstractStatement}, graph, topo
 
             # @show stmt
             do_debug = CellDependency("Cash Flow Analysis", "C108") in get_set_cells(stmt)
+            # do_debug = CellDependency("oyster Husbandry model", "CK99") in get_set_cells(stmt)
             if do_debug
                 @show node stmt
                 @show node in visited
@@ -353,6 +355,15 @@ function new_group_statements(statements::Vector{AbstractStatement}, graph, topo
             # But because a group will generally introduce a scope, it's important that any values set inside that are available outside
             # This is true for table statements, since the table persists, but for other kinds of statements, the value won't persist
             # It also causes functions to have more parameters than needed
+            first_non_table = findfirst(n -> !isa(statements[n], TableStatement), compress_group)
+            do_debug && @show first_non_table
+            if !isnothing(first_non_table) && first_non_table < (length(compress_group) - 1)
+                compress_group = compress_group[begin:first_non_table - 1]
+                if do_debug
+                    println("After trimming non-table statements")
+                    @show compress_group
+                end
+            end
             has_non_table_statement = any(n -> !isa(statements[n], TableStatement), @view compress_group[begin:(end-1)])
             if length(compress_group) > 10 && !has_non_table_statement
                 union!(visited, compress_group)
@@ -393,10 +404,10 @@ function group_statements(statements::Vector{AbstractStatement})
 end
 function debug_group_statements(statements::Vector{AbstractStatement}, set_cell::CellDependency)
     stmt_graph = make_statement_graph(statements)
-    stmt_topo_levels = get_topo_levels_top_down(stmt_graph)
+    # stmt_topo_levels = get_topo_levels_top_down(stmt_graph)
     # grouped = group_statements(statements, stmt_graph, stmt_topo_levels)
     # stmt_graph = make_statement_graph(grouped)
-    # stmt_topo_levels = get_topo_levels_bottom_up(stmt_graph)
+    stmt_topo_levels = get_topo_levels_bottom_up(stmt_graph)
     node = findfirst(s -> set_cell in get_set_cells(s), statements)
     try_smush_node(statements, stmt_graph, stmt_topo_levels, maximum(values(stmt_topo_levels)), node; debug = true)
     # debug_group_statements(statements, stmt_graph, stmt_topo_levels, node)

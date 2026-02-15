@@ -107,7 +107,7 @@ function Base.in((row, col), table::ExcelTable)
     (startrow(table) <= row <= endrow(table)) && (startcol(table) <= col <= endcol(table))
     # (row >= startrow(table) && row <= endrow(table) && col >= startcol(table) && col <= endcol(table))
 end
-Base.in(cell::CellDependency, table::ExcelTable) = (cell.sheet_name == table.sheet_name) && ((rownum(cell), colnum(cell)) in table)
+Base.in(cell::CellDependency, table::ExcelTable) = ((rownum(cell), colnum(cell)) in table) && (cell.sheet_name == table.sheet_name)
 
 function Base.show(io::IO, table::ExcelTable)
     print(io, "ExcelTable($(getname(table)))")
