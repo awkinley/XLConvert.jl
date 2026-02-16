@@ -75,9 +75,9 @@ function partition_to_antichains(
 end
 
 
-function new_broadcast(statements::Vector{AbstractStatement})
+function new_broadcast(statements::Vector{AbstractStatement}; debug::Bool=true)
     stmt_graph = make_statement_graph(statements)
-    new_broadcast(statements, stmt_graph)
+    new_broadcast(statements, stmt_graph, debug=debug)
 end
 
 struct ReductionResult

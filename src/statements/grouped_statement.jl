@@ -946,8 +946,8 @@ end
 function get_params_str(exporter, statement::GroupedStatement)
     needed_vars = get_cell_deps(statement)
 
-    table_sub_stmts = filter(s -> s isa TableStatement, statement.sub_statements)
-    table_vars = [get_set_cells(stmt)[1] for stmt in table_sub_stmts]
+    # table_sub_stmts = filter(s -> s isa TableStatement, statement.sub_statements)
+    table_vars = [get_set_cells(stmt)[1] for stmt in statement.sub_statements if stmt isa TableStatement]
     append!(needed_vars, table_vars)
 
     scope_vars = get_required_scope_vars(exporter.tables, exporter.var_names, needed_vars)
