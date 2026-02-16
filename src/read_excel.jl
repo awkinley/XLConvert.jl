@@ -1407,14 +1407,17 @@ function make_dataframe_declaration(exporter::PythonExporter, wb::ExcelWorkbook,
             col_name = column_name(table, c - start_c + 1)
             # col_def = "$(repr(col_name)) => fill!(Vector{$type_str}(undef, $num_rows), $initial_value)"
             # col_def = "$(repr(col_name)): $col_values"
-            col_def = "$(repr(col_name)): np.zeros($num_rows)"
+            # col_def = "$(repr(col_name)): np.zeros($num_rows)"
+            col_def = "$(repr(col_name))"
             push!(col_defs, col_def)
             # println("Col: $col_name type: $(types)")
         end
     end
     # col_names = [column_name(table, c) for c in 1:num_cols]
     # line_str = "\t$lhs = DataFrame(Base.convert(Matrix{Any}, zeros($num_rows, $num_cols)), [$(join(repr.(col_names), ", "))])"
-    line_str = "\t$lhs = pd.DataFrame({$(join(col_defs, ",\n\t"))})"
+    # line_str = "\t$lhs = pd.DataFrame({$(join(col_defs, ",\n\t"))})"
+    cols_str = join(col_defs, ", ")
+    line_str = "\t$lhs = pd.DataFrame(\n\t\tnp.zeros($num_rows, $num_cols),\n\t\tcolumns=[$cols_str]\n\t)"
     # line_str = "\t$lhs = Base.convert(Matrix{Any}, zeros($num_rows, $num_cols))"
 
     line_str
