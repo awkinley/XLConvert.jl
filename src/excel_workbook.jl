@@ -116,6 +116,12 @@ function lower_sheet_names!(expr::ExcelExpr, current_sheet::AbstractString)
             # ExcelExpr(op, lower_sheet_names.(args, current_sheet))
         end
     end
+
+    if expr.head == :sheet_ref
+        expr.args[2]
+    else
+        expr
+    end
 end
 
 function convert_cell(sheet, sheet_name, cell::XLSX.Cell)
@@ -123,7 +129,7 @@ function convert_cell(sheet, sheet_name, cell::XLSX.Cell)
         try
             @assert !(cell.formula isa XLSX.FormulaReference)
             expr = toexpr(cell.formula.formula)
-            lower_sheet_names!(expr, sheet_name)
+            expr = lower_sheet_names!(expr, sheet_name)
             FormulaCell(cell, convert_to_flat_expr(expr))
             # FormulaCell(cell, expr)
         catch e
