@@ -76,7 +76,7 @@ function define_tokenizer()
         STRING_LITERAL => re"\"([^\"]|\"\")*\"",
         NAMED_RANGE_PREFIXED => re"(TRUE|FALSE|([A-Z]+[0-9]+))[A-Za-z0-9\\_]+",
         # (space, SPACE),
-        NAMED_RANGE => re"[A-Za-z_\\][A-Za-z0-9\\_]*" | re"_xlpm\.[A-Za-z0-9]+" | re"#Headers" | re"#Data" | re"#All",
+        NAMED_RANGE => re"[A-Za-z_\\][A-Za-z0-9\\_\.]*" | re"_xlpm\.[A-Za-z0-9]+" | re"#Headers" | re"#Data" | re"#All",
         SR_COLUMN => re"\[[A-Za-z0-9\\_#]+\]",
         SPACE => re" |\n|\t",
     ]
