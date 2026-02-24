@@ -8,6 +8,12 @@ end
 get_set_cells(stmt::FunctionStatement) = [stmt.assigned_var]
 get_cell_deps(stmt::FunctionStatement) = reduce(vcat, get_set_cells.(stmt.inputs))
 
+function apply_expr_transform!(stmt::FunctionStatement, transform)
+    for s in stmt.intermediates
+        apply_expr_transform!(s, transform)
+    end
+end
+
 function to_string(exporter, statement::FunctionStatement)
     cell_ref = statement.assigned_var
     lhs = exporter.var_names[cell_ref]
@@ -150,7 +156,19 @@ function get_function_string(exporter::PythonExporter, wb::ExcelWorkbook, statem
     lines = split(function_inner, "\n")
     function_inner = join(["\t" * l for l in lines], "\n")
 
+    dependent_funcs = ""
+    for stmt in statement.intermediates
+        if stmt isa GroupedStatement
+            func_str = get_function_string(exporter, wb, stmt)
+            if !isnothing(func_str)
+                dependent_funcs *= func_str * "\n"
+            end
+        end
+    end
+
+
     """
+    $dependent_funcs
     def $function_name($params_str):
     $function_inner
     \treturn $(exporter.var_names[statement.assigned_var])

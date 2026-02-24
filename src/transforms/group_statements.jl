@@ -336,8 +336,9 @@ function new_group_statements(statements::Vector{AbstractStatement}, graph, topo
             end
 
             # @show stmt
-            do_debug = CellDependency("Cash Flow Analysis", "C108") in get_set_cells(stmt)
-            # do_debug = CellDependency("oyster Husbandry model", "CK99") in get_set_cells(stmt)
+            # do_debug = CellDependency("Cash Flow Analysis", "C108") in get_set_cells(stmt)
+            # do_debug = CellDependency("growth- cohort group 2", "C82") in get_set_cells(stmt)
+            do_debug = false
             if do_debug
                 @show node stmt
                 @show node in visited
@@ -357,7 +358,7 @@ function new_group_statements(statements::Vector{AbstractStatement}, graph, topo
             # It also causes functions to have more parameters than needed
             first_non_table = findfirst(n -> !isa(statements[n], TableStatement), compress_group)
             do_debug && @show first_non_table
-            if !isnothing(first_non_table) && first_non_table < (length(compress_group) - 1)
+            if !isnothing(first_non_table) && first_non_table < (length(compress_group))
                 compress_group = compress_group[begin:first_non_table - 1]
                 if do_debug
                     println("After trimming non-table statements")
@@ -365,6 +366,9 @@ function new_group_statements(statements::Vector{AbstractStatement}, graph, topo
                 end
             end
             has_non_table_statement = any(n -> !isa(statements[n], TableStatement), @view compress_group[begin:(end-1)])
+            if do_debug
+                @show length(compress_group) has_non_table_statement
+            end
             if length(compress_group) > 10 && !has_non_table_statement
                 union!(visited, compress_group)
                 println("Found a group of $(length(compress_group)) nodes that can be smushed")

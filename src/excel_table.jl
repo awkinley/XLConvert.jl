@@ -92,12 +92,15 @@ function column_name(table::ExcelTable, col_idx)
 end
 function row_name(table::ExcelTable, row_idx)
     if ismissing(table._row_names)
-        "$row_idx"
+        row_idx
     else
         table._row_names[row_idx]
     end
     # string(xf[table.sheet_name][table.column_names_range][col_idx])
 end
+
+get_column_names(table::ExcelTable) = table._col_names
+get_row_names(table::ExcelTable) = table._row_names
 
 # Base.in((row, col), table::ExcelTable) = (row >= startrow(table) && row <= endrow(table) && col >= startcol(table) && col <= endcol(table))
 function Base.in((row, col), table::ExcelTable)

@@ -17,8 +17,11 @@ function getdatatype(ws::XLSX.Worksheet, cell::XLSX.Cell)
     elseif (isempty(cell.datatype) || cell.datatype == "n")
         if !isempty(cell.style) && XLSX.styles_is_datetime(ws, cell.style)
 
-            if XLSX.getdata(ws, cell) isa Dates.Date
+            data = XLSX.getdata(ws, cell)
+            if data isa Dates.Date
                 return Dates.Date
+            elseif data isa Dates.DateTime
+                return Dates.DateTime
             else
                 return Float64
             end

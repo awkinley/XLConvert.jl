@@ -5,14 +5,19 @@ end
 get_cell_deps(stmt::GroupedStatement) = reduce(vcat, get_cell_deps.(stmt.sub_statements))
 get_set_cells(stmt::GroupedStatement) = reduce(vcat, get_set_cells.(stmt.sub_statements))
 function apply_expr_transform!(stmt::GroupedStatement, transform)
-    for s in stmt.sub_statments
+    for s in stmt.sub_statements
         apply_expr_transform!(s, transform)
     end
 end
 
 function to_string(exporter, statement::GroupedStatement)
 
-    children = join(to_string.((exporter,), statement.sub_statements), ", ")
+    children = if length(statement.sub_statements) > 5
+        join(to_string.((exporter,), statement.sub_statements[begin:5]), ", ") * "..."
+    else
+        join(to_string.((exporter,), statement.sub_statements), ", ")
+    end
+    # children = join(to_string.((exporter,), statement.sub_statements), ", ")
     "GroupedStatement($children)"
 end
 
@@ -86,12 +91,13 @@ function make_loop_idx_str(::JuliaExporter, base_idx::Int, offset, fixed)
 end
 
 function make_loop_idx_str(::PythonExporter, base_idx::Int, offset, fixed)
+    a = base_idx
     if offset == 0
-        "$base_idx"
+        "$a"
     elseif offset == 1
-        "$base_idx + i"
+        "$a + i"
     else
-        "$base_idx + (i * $offset)"
+        "$a + (i * $offset)"
     end
 end
 
@@ -129,12 +135,13 @@ end
 function make_loop_idx_str(e::PythonExporter, base_idx::UnitRange{Int}, offset, fixed)
     a = first(base_idx)
     b = last(base_idx)
-    if length(base_idx) == 1
-        return make_loop_idx_str(e, first(base_idx), offset, fixed)
+    if length(base_idx) == 1 && fixed == (false, false)
+        return make_loop_idx_str(e, a, offset, fixed)
     end
 
     if offset == 0
-        "$base_idx"
+        "$a:$(b + 1)"
+        # "$base_idx"
     elseif fixed == (false, false)
         if offset == 1
             "($a + i):($b + i)"
@@ -151,7 +158,7 @@ function make_loop_idx_str(e::PythonExporter, base_idx::UnitRange{Int}, offset, 
             end
         end
 
-        right = string(last(base_idx))
+        right = string(last(base_idx) + 1)
         if !fixed[2]
             if offset == 1
                 right *= " + i"
@@ -391,6 +398,11 @@ function part_to_workbook_range(expr::XLConvert.FlatExpr, i::Int32)
         return part_to_workbook_range(expr, sub_i)
     end
 
+    if @ismatch part ExcelExpr(:broadcast_protect, [protected])
+        part = protected
+        # return part_to_workbook_range(expr, sub_i)
+    end
+
     @match part begin
         ExcelExpr(:range, [FlatIdx(lhs_i), FlatIdx(rhs_i)]) => begin
             lhs_expr = expr.parts[lhs_i]
@@ -420,104 +432,6 @@ function part_to_workbook_range(expr::XLConvert.FlatExpr, i::Int32)
     end
 end
 
-function look_for_xlookups(expr::FlatExpr)
-
-    for (i, part) in enumerate(expr.parts)
-        # i in handled && continue
-
-        @match part begin
-            ExcelExpr(:call, ["_xlfn.XLOOKUP", FlatIdx(val), FlatIdx(ref_range), FlatIdx(value_range)]) => begin
-                ref_part = expr.parts[ref_range]
-                value_part = expr.parts[value_range]
-
-                if value_part.head != :table_ref
-                    continue
-                end
-
-                # if ref_part.head != :table_ref
-                #     continue
-                # end
-
-
-                # table = ref_part.args[1]
-                # row_idx, col_idx = ref_part.args[2:3]
-                value_row_idx, value_col_idx = value_part.args[2:3]
-
-                ref_region = part_to_workbook_range(expr, ref_range)
-                # @show ref_range
-                # @show ref_region
-                if isnothing(ref_region)
-                    continue
-                end
-
-                if size(ref_region)[2] != 1 || length(value_col_idx) != 1
-                    @show value_row_idx
-                    if size(ref_region)[1] != 1
-                        continue
-                    end
-
-                    println("Found an xlookup that could probably be a column lookup")
-                    # @show expr.parts[val] ref_part value_part
-
-                    value_tbl = value_part.args[1]
-                    if !(':' in value_tbl.column_names_range)
-                        continue
-                    end
-                    # @show value_tbl.column_names_range
-                    col_start, col_end = split(value_tbl.column_names_range, ":")
-                    table_cols_region = WorkbookRegion(value_tbl.sheet_name, col_start, col_end)
-
-                    # r = startrow(table) + first(row_idx) - 1
-                    # c = startcol(table) + first(col_idx) - 1
-                    # ref_col_region = WorkbookRegion(CellDependency(table.sheet_name, startcol(table) + first(col_idx) - 1, r), CellDependency(table.sheet_name, startcol(table) + first(col_idx) - 1, r)) 
-                    # @show ref_col_region table_cols_region
-                    # @show table.row_names_range
-                    if ref_region in table_cols_region
-                        println("Ref's a column!")
-                        # @show expr.parts[val] ref_part value_part
-                        expr.parts[i] = ExcelExpr(:table_ref_col, Any[value_tbl, value_row_idx, FlatIdx(val)])
-                    end
-
-
-                else
-
-
-                    # if ref_part.args[1] != value_part.args[1]
-                    #     continue
-                    # end
- 
-                    # println("Found an xlookup that could probably be an indexed lookup")
-                    # @show expr.parts[val] ref_part value_part
-
-
-                    value_tbl = value_part.args[1]
-                    if !(':' in value_tbl.row_names_range)
-                        continue
-                    end
-                    row_start, row_end = split(value_tbl.row_names_range, ":")
-                    table_rows_region = WorkbookRegion(value_tbl.sheet_name, row_start, row_end)
-                    # @show ref_region table_rows_region
-
-                    # c = startcol(table) + first(col_idx) - 1
-
-                    # ref_row_str = cell_str(CellDependency(table.sheet_name, c, startrow(table) + row_idx[1] - 1)) * ":" * cell_str(CellDependency(table.sheet_name, c, startrow(table) + row_idx[end] - 1)) 
-                    # @show ref_row_str
-                    # @show table.row_names_range
-                    # if table.row_names_range === ref_row_str
-                    if table_rows_region == ref_region
-                        println("Ref's on name row!")
-                        # @show expr.parts[val] ref_part value_part
-                        expr.parts[i] = ExcelExpr(:table_ref_idx, Any[value_tbl, FlatIdx(val), first(value_col_idx)])
-                    end
-                end
-
-
-
-            end
-            _ => continue
-        end
-    end
-end
 
 function export_looped(exporter::PythonExporter, wb::ExcelWorkbook, statements)
     funcs_and_params = [functionalize(s.rhs_expr) for s in statements]
@@ -542,19 +456,18 @@ function export_looped(exporter::PythonExporter, wb::ExcelWorkbook, statements)
 
     table, row_idx, col_idx, row_fixed, col_fixed = lhs_expr.args
 
-    row_str = make_loop_idx_str(exporter, row_idx, row_offset, row_fixed)
-    col_str = make_loop_idx_str(exporter, col_idx, col_offset, col_fixed)
-    lhs_str = "$(getname(table)).at[$row_str, $col_str]"
+    row_str = make_loop_idx_str(exporter, row_idx .- 1, row_offset, row_fixed)
+    col_str = make_loop_idx_str(exporter, col_idx .- 1, col_offset, col_fixed)
+    lhs_str = "$(getname(table)).iloc[$row_str, $col_str]"
     # println("\t$str")
 
     function get_param_str(param_num, exporter, ctx)
         if param_num in changing_params
             param_expr = params[1, param_num]
             table, row_idx, col_idx, row_fixed, col_fixed = param_expr.args
-            row_str = make_loop_idx_str(exporter, row_idx, row_offset, row_fixed)
-            col_str = make_loop_idx_str(exporter, col_idx, col_offset, col_fixed)
-            # @show col_idx col_offset, col_fixed
-            "$(getname(table)).loc[$row_str, $col_str]"
+            row_str = make_loop_idx_str(exporter, row_idx .- 1, row_offset, row_fixed)
+            col_str = make_loop_idx_str(exporter, col_idx .- 1, col_offset, col_fixed)
+            "$(getname(table)).iloc[$row_str, $col_str]"
         else
             throw("Tried to get param_str for param_num $param_num, but it wasn't a changing param")
         end
@@ -583,7 +496,8 @@ function export_looped(exporter::PythonExporter, wb::ExcelWorkbook, statements)
     # println("Before replacing func params")
     # show(stdout, "text/plain", rhs_expr)
     rhs_expr = replace_func_params(rhs_expr, typed_params)
-    look_for_xlookups(rhs_expr)
+    # look_for_xlookups(rhs_expr)
+    # xlookup_to_indexing!(rhs_expr)
     # println("After replacing func params")
     # show(stdout, "text/plain", rhs_expr)
 
@@ -771,47 +685,47 @@ function export_with_for_loops(exporter, wb::ExcelWorkbook, statement::GroupedSt
     end
 
     unique_funcs = unique(map(s -> isnothing(s) ? s : s[1], functionalized))
-    if !any(isnothing, functionalized) && length(unique_funcs) == 1
-        params = reduce(vcat, map(s -> s[2], functionalized))
-        params_str = join(["param_$i" for i in axes(params, 2)], ", ")
-        push!(lines, "def func($params_str):\n")
-        push!(lines, "\treturn " * convert(exporter, first(collect(unique_funcs)), "") * "\n\n")
+    # if !any(isnothing, functionalized) && length(unique_funcs) == 1
+    #     params = reduce(vcat, map(s -> s[2], functionalized))
+    #     params_str = join(["param_$i" for i in axes(params, 2)], ", ")
+    #     push!(lines, "def func($params_str):\n")
+    #     push!(lines, "\treturn " * convert(exporter, first(collect(unique_funcs)), "") * "\n\n")
 
-        name = get_function_name(exporter, statement)
-        for stmt_indices in can_loop_ranges
-            if length(stmt_indices) == 1
-                # params_strings = [convert(exporter, param_expr, sheet) for param_expr in params[first(stmt_indices), :]]
-                params_strings = [convert(exporter, param_expr, "") for param_expr in params[first(stmt_indices), :]]
-                func_params = join(params_strings, ", ")
-                rhs = "func($(func_params))"
+    #     name = get_function_name(exporter, statement)
+    #     for stmt_indices in can_loop_ranges
+    #         if length(stmt_indices) == 1
+    #             # params_strings = [convert(exporter, param_expr, sheet) for param_expr in params[first(stmt_indices), :]]
+    #             params_strings = [convert(exporter, param_expr, "") for param_expr in params[first(stmt_indices), :]]
+    #             func_params = join(params_strings, ", ")
+    #             rhs = "func($(func_params))"
 
-                lhs = try
-                    convert(exporter, sub_statements[stmt_indices[1]].lhs_expr, "")
-                catch e
-                    @show statement.lhs_expr
-                    throw(e)
-                end
-                push!(lines, "$lhs = $rhs\n")
-                # push!(lines, export_statement(exporter, wb, sub_statements[first(stmt_indices)]))
-            else
-                println("$name: looping $(length(stmt_indices)) statements")
-                push!(lines, export_looped(exporter, wb, sub_statements[stmt_indices]))
-            end
-        end
+    #             lhs = try
+    #                 convert(exporter, sub_statements[stmt_indices[1]].lhs_expr, "")
+    #             catch e
+    #                 @show statement.lhs_expr
+    #                 throw(e)
+    #             end
+    #             push!(lines, "$lhs = $rhs\n")
+    #             # push!(lines, export_statement(exporter, wb, sub_statements[first(stmt_indices)]))
+    #         else
+    #             println("$name: looping $(length(stmt_indices)) statements")
+    #             push!(lines, export_looped(exporter, wb, sub_statements[stmt_indices]))
+    #         end
+    #     end
 
-    else
+    # else
 
-        name = get_function_name(exporter, statement)
-        for stmt_indices in can_loop_ranges
-            if length(stmt_indices) == 1
+    name = get_function_name(exporter, statement)
+    for stmt_indices in can_loop_ranges
+        if length(stmt_indices) == 1
 
-                push!(lines, export_statement(exporter, wb, sub_statements[first(stmt_indices)]))
-            else
-                println("$name: looping $(length(stmt_indices)) statements")
-                push!(lines, export_looped(exporter, wb, sub_statements[stmt_indices]))
-            end
+            push!(lines, export_statement(exporter, wb, sub_statements[first(stmt_indices)]))
+        else
+            println("$name: looping $(length(stmt_indices)) statements")
+            push!(lines, export_looped(exporter, wb, sub_statements[stmt_indices]))
         end
     end
+    # end
 
 
     # @show lines
@@ -1071,9 +985,11 @@ function export_statement(exporter::PythonExporter, wb::ExcelWorkbook, statement
 
     xf = wb.xf
     assert_lines = ""
-    # for (cell_ref, name) in zip(set_cells, variable_names)
-    #     assert_lines *= "@assert xl_compare($name, $(repr(xf[string(cell_ref.sheet_name)][cell_ref.cell]))) # $(to_string(cell_ref))\n"
-    # end
+    for (cell_ref, name) in zip(set_cells, variable_names)
+        cell_value = xf[string(cell_ref.sheet_name)][cell_ref.cell]
+        value_str = convert(exporter, cell_value, cell_ref.sheet_name)
+        assert_lines *= "assert xl.compare($name, $value_str) # $(to_string(cell_ref))\n"
+    end
 
 
     table_sub_stmts = filter(s -> s isa TableStatement, statement.sub_statements)
@@ -1083,7 +999,7 @@ function export_statement(exporter::PythonExporter, wb::ExcelWorkbook, statement
         """
         # Group of $(length(statement.sub_statements)) statements
         $middle_lines
-
+        $assert_lines
         """
     else
         # needed_vars = get_cell_deps(statement)

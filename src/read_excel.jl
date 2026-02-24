@@ -308,32 +308,19 @@ function set_names_from_table!(name_map, cell_dependencies, table::ExcelTable)
     c_start = startcol(table)
     r_end = endrow(table)
     c_end = endcol(table)
-    # c_start, r_start = parse_cell(table.top_left)
-    # c_end, r_end = parse_cell(table.bottom_right)
     for c in c_start:c_end, r in r_start:r_end
         cell = CellDependency(table.sheet_name, c, r)
         if cell in cell_dependencies
             row_idx = r - startrow(table) + 1
             col_name = column_name(table, c - startcol(table) + 1)
+            r_name = row_name(table, r - startrow(table) + 1)
 
-            var_name = "$(getname(table))[$(repr(row_idx)), $(repr(col_name))]"
+            # var_name = "$(getname(table))[$(repr(row_idx)), $(repr(col_name))]"
+            var_name = "$(getname(table)).loc[$(repr(r_name)), $(repr(col_name))]"
             name_map[cell] = var_name
 
         end
     end
-    # for cell in cell_dependencies
-    #     c, r = parse_cell(cell.cell)
-    #     if (cell.sheet_name == table.sheet_name && (r, c) in table)
-    #         row_idx = r - startrow(table) + 1
-    #         # col_idx = c - startcol(table) + 1
-    #         # var_name = "$(getname(table))[$(repr(row_idx)), $(repr(col_idx))]"
-    #         col_name = column_name(table, c - startcol(table) + 1)
-
-    #         var_name = "$(getname(table))[$(repr(row_idx)), $(repr(col_name))]"
-    #         # println("cell = $(repr(cell)) $var_name")
-    #         name_map[cell] = var_name
-    #     end
-    # end
 end
 
 # contexts = Dict((sheet_name => make_ctx(sheet_name, xf)) for sheet_name in XLSX.sheetnames(xf))
@@ -343,7 +330,7 @@ end
 function DefTable(xf::XLSX.XLSXFile, sheet_name, table_name, top_left, bottom_right, column_names_range, row_names_range)
     column_names = missing
 
-    startcol = parse_cell(top_left)[1]
+    startcol, startrow = parse_cell(top_left)
     endcol = parse_cell(bottom_right)[1]
     if !isempty(column_names_range)
         column_names = string.(xf[sheet_name][column_names_range])
@@ -367,6 +354,8 @@ function DefTable(xf::XLSX.XLSXFile, sheet_name, table_name, top_left, bottom_ri
         for i in eachindex(row_names)
             if ismissing(row_names[i])
                 row_names[i] = "missing_$(i)"
+            elseif row_names[i] in row_names[begin:(i - 1)]
+                row_names[i] *= string("_", startrow + i - 1)
             end
         end
 
@@ -981,8 +970,9 @@ function make_statement_graph(statements::Vector{AbstractStatement})
             # if !(cell_dep in keys(cell_to_statement))
             # if isnothing(end_statement)
             if isnothing(end_node)
-                # @show get_set_cells(statement)
-                # @show cell_dep
+                @show statement
+                @show get_set_cells(statement)
+                @show cell_dep
                 continue
             end
             # end_statement = cell_to_statement[cell_dep]
@@ -1026,7 +1016,8 @@ function make_statement_graph(statements::Vector{AbstractStatement})
 end
 
 # export_statements(io::IO, exporter, wb::ExcelWorkbook, statements::AbstractArray{AbstractStatement}) = export_statements_levels_with_moving(io, exporter, wb, statements)
-export_statements(io::IO, exporter, wb::ExcelWorkbook, statements::AbstractArray{AbstractStatement}) = export_statements_levels(io, exporter, wb, statements)
+# export_statements(io::IO, exporter, wb::ExcelWorkbook, statements::AbstractArray{AbstractStatement}) = export_statements_levels(io, exporter, wb, statements)
+export_statements(io::IO, exporter, wb::ExcelWorkbook, statements::AbstractArray{AbstractStatement}) = export_statements_global_affinity(io, exporter, wb, statements)
 
 function export_statements_optimized(io::IO, exporter, wb::ExcelWorkbook, statements::AbstractArray{AbstractStatement})
     stmt_graph = make_statement_graph(statements)
@@ -1188,6 +1179,438 @@ function export_statements_levels(io::IO, exporter, wb::ExcelWorkbook, statement
         write(io, "\n\n")
     end
     # grouped_by_level = Dict((l => [kv.first for kv in topo_levels if kv.second == l]) for l in 0:max_level)
+end
+
+function export_statements_levels_table_grouped(io::IO, exporter, wb::ExcelWorkbook, statements::AbstractArray{AbstractStatement})
+    stmt_graph = make_statement_graph(statements)
+
+    stmt_topo_levels = get_topo_levels_top_down(stmt_graph)
+    bottom_up_levels = get_topo_levels_bottom_up(stmt_graph)
+    input_statements = Set([kv.first for kv in bottom_up_levels if kv.second == 0])
+
+    max_level = maximum(values(stmt_topo_levels))
+
+    level_order_indices = [Int64[] for _ in 0:max_level]
+    statement_levels = Dict{Int64, Int64}()
+    for level in 0:max_level
+        level_statement_idx = [kv.first for kv in stmt_topo_levels if (kv.second == level) && !(kv.first in input_statements)]
+        sort!(level_statement_idx, by = i -> get_set_cells(statements[i])[1])
+        level_order_indices[level+1] = level_statement_idx
+        for idx in level_statement_idx
+            statement_levels[idx] = level
+        end
+    end
+
+    table_name(table) = try
+        string(getname(table))
+    catch
+        "<unknown>"
+    end
+
+    move_diag = Dict{Int64, Vector{Tuple{Int64, Any}}}((l => Tuple{Int64, Any}[]) for l in 0:max_level)
+
+    # Move same-table TableStatements upward across levels, promoting directly
+    # to the highest feasible destination level when valid.
+    any_moved = true
+    while any_moved
+        any_moved = false
+
+        for source_level in 0:(max_level - 1)
+            source_idx = level_order_indices[source_level+1]
+
+            i = 1
+            while i <= length(source_idx)
+                node = source_idx[i]
+                stmt = statements[node]
+                if !(stmt isa TableStatement)
+                    i += 1
+                    continue
+                end
+
+                table = get_set_table(stmt)
+                node_deps = [d for d in outneighbors(stmt_graph, node) if d in keys(statement_levels)]
+                node_users = [u for u in inneighbors(stmt_graph, node) if u in keys(statement_levels)]
+
+                if isempty(node_users)
+                    i += 1
+                    continue
+                end
+
+                # Keep this pass focused on table grouping.
+                has_same_table_user_above = any(u -> (statement_levels[u] > source_level) &&
+                                                  (statements[u] isa TableStatement) &&
+                                                  (get_set_table(statements[u]) == table), node_users)
+                if !has_same_table_user_above
+                    i += 1
+                    continue
+                end
+
+                # Highest legal level is bounded by earliest user.
+                max_feasible_level = minimum(statement_levels[u] for u in node_users)
+                if max_feasible_level <= source_level
+                    i += 1
+                    continue
+                end
+
+                moved = false
+                for dest_level in max_feasible_level:-1:(source_level + 1)
+                    # dependencies must be at or below destination
+                    if any(statement_levels[d] > dest_level for d in node_deps)
+                        continue
+                    end
+                    # users must be at or above destination
+                    if any(statement_levels[u] < dest_level for u in node_users)
+                        continue
+                    end
+
+                    target_idx = level_order_indices[dest_level+1]
+                    target_pos = Dict((n => p) for (p, n) in enumerate(target_idx))
+
+                    lower = maximum((get(target_pos, d, 0) + 1 for d in node_deps); init = 1)
+                    upper = minimum((get(target_pos, u, length(target_idx) + 1) for u in node_users); init = length(target_idx) + 1)
+                    if lower > upper
+                        continue
+                    end
+
+                    # Prefer insertion near same-table users in destination.
+                    same_table_users_in_dest = [u for u in node_users if statement_levels[u] == dest_level &&
+                                                                   (statements[u] isa TableStatement) &&
+                                                                   (get_set_table(statements[u]) == table)]
+                    preferred = if isempty(same_table_users_in_dest)
+                        upper
+                    else
+                        minimum(get(target_pos, u, upper) for u in same_table_users_in_dest)
+                    end
+                    insert_pos = min(max(preferred, lower), upper)
+
+                    deleteat!(source_idx, i)
+                    insert!(target_idx, insert_pos, node)
+                    statement_levels[node] = dest_level
+
+                    push!(move_diag[dest_level], (source_level, table))
+                    any_moved = true
+                    moved = true
+                    break
+                end
+
+                if !moved
+                    i += 1
+                end
+            end
+        end
+    end
+
+    function order_level_table_aware(level_idx::Vector{Int64}, level::Int64)
+        if length(level_idx) <= 1
+            return copy(level_idx), String[]
+        end
+
+        in_level = Set(level_idx)
+        base_pos = Dict((idx => pos) for (pos, idx) in enumerate(level_idx))
+        in_level_prereq_count = Dict((idx => 0) for idx in level_idx)
+        in_level_dependents = Dict((idx => Int64[]) for idx in level_idx)
+
+        for idx in level_idx
+            for dep in outneighbors(stmt_graph, idx)
+                if dep in in_level
+                    in_level_prereq_count[idx] += 1
+                    push!(in_level_dependents[dep], idx)
+                end
+            end
+        end
+
+        available = [idx for idx in level_idx if in_level_prereq_count[idx] == 0]
+        sort!(available, by = idx -> base_pos[idx])
+
+        ordered = Int64[]
+        last_table = missing
+        local_reorder_counts = Dict{Any, Int64}()
+
+        while !isempty(available)
+            default_choice = available[1]
+            chosen = default_choice
+
+            if !ismissing(last_table)
+                same_table = filter(idx -> (statements[idx] isa TableStatement) && get_set_table(statements[idx]) == last_table, available)
+                if !isempty(same_table)
+                    chosen = same_table[1]
+                    if chosen != default_choice
+                        local_reorder_counts[last_table] = get(local_reorder_counts, last_table, 0) + 1
+                    end
+                end
+            end
+
+            deleteat!(available, findfirst(==(chosen), available))
+            push!(ordered, chosen)
+
+            if statements[chosen] isa TableStatement
+                last_table = get_set_table(statements[chosen])
+            else
+                last_table = missing
+            end
+
+            for user in in_level_dependents[chosen]
+                in_level_prereq_count[user] -= 1
+                if in_level_prereq_count[user] == 0
+                    push!(available, user)
+                end
+            end
+            sort!(available, by = idx -> base_pos[idx])
+        end
+
+        comments = String[]
+        if length(ordered) != length(level_idx)
+            # Fallback: keep remaining statements in base order if constraints became cyclic.
+            remaining = filter(idx -> !(idx in ordered), level_idx)
+            append!(ordered, remaining)
+            push!(comments, "# [diag] warning: unresolved same-level ordering cycle at level $level; used base order fallback for $(length(remaining)) statement(s)")
+        end
+
+        for (table, count) in local_reorder_counts
+            push!(comments, "# [diag] grouped TableStatements within level $level for table \"$(table_name(table))\" (reorder step(s): $count)")
+        end
+
+        ordered, comments
+    end
+
+    for level in 0:max_level
+        write(io, "# Level $(level)\n")
+
+        if !isempty(move_diag[level])
+            grouped_moves = Dict{Any, Tuple{Int64, Set{Int64}}}()
+            for (source_level, table) in move_diag[level]
+                count, levels = get(grouped_moves, table, (0, Set{Int64}()))
+                push!(levels, source_level)
+                grouped_moves[table] = (count + 1, levels)
+            end
+
+            for (table, (count, levels)) in grouped_moves
+                from_levels = sort(collect(levels))
+                from_levels_str = join(from_levels, ", ")
+                write(io, "# [diag] cross-level grouping moved $count statement(s) from level(s) [$from_levels_str] into level $level for table \"$(table_name(table))\"\n")
+            end
+        end
+
+        ordered_idx, level_diag = order_level_table_aware(level_order_indices[level+1], level)
+        for comment in level_diag
+            write(io, "$comment\n")
+        end
+
+        for idx in ordered_idx
+
+            dependents = statements[inneighbors(stmt_graph, idx)]
+            if !isempty(dependents)
+                usages = if length(dependents) > 5
+                    "[" * join(to_string.((exporter,), dependents[1:4]), ", ") * ", ..., " * to_string(exporter, dependents[end]) * "]"
+                else
+                    "[" * join(to_string.((exporter,), dependents), ", ") * "]"
+                end
+                usages = "[" * join(to_string.((exporter,), dependents), ", ") * "]"
+                write(io, "# Used in $(length(dependents)) places: $usages\n")
+            end
+            write(io, export_statement(exporter, wb, statements[idx]))
+        end
+
+        write(io, "\n\n")
+    end
+end
+
+function export_statements_global_affinity(io::IO, exporter, wb::ExcelWorkbook, statements::AbstractArray{AbstractStatement})
+    stmt_graph = make_statement_graph(statements)
+    stmt_topo_levels = get_topo_levels_top_down(stmt_graph)
+    bottom_up_levels = get_topo_levels_bottom_up(stmt_graph)
+    input_statements = Set([kv.first for kv in bottom_up_levels if kv.second == 0])
+
+    active_indices = filter(i -> !(i in input_statements), collect(eachindex(statements)))
+    if isempty(active_indices)
+        write(io, "# Global affinity schedule: no non-input statements to export.\n")
+        return
+    end
+
+    function statement_sheet_key(stmt::AbstractStatement)
+        cells = get_set_cells(stmt)
+        isempty(cells) && return missing
+        base_sheet = string(cells[1].sheet_name)
+        if any(c -> string(c.sheet_name) != base_sheet, cells)
+            return "<mixed>"
+        end
+        base_sheet
+    end
+
+    statement_table_key(stmt::AbstractStatement) = missing
+    statement_table_key(stmt::TableStatement) = get_set_table(stmt)
+    statement_table_key(stmt::BroadcastedStatement) = get_set_table(stmt)
+
+    table_name(table) = try
+        string(getname(table))
+    catch
+        "<unknown>"
+    end
+
+    max_level = maximum(values(stmt_topo_levels))
+    base_order = Int64[]
+    for level in 0:max_level
+        level_idxs = filter(i -> stmt_topo_levels[i] == level && (i in active_indices), eachindex(statements))
+        sort!(level_idxs, by = i -> isempty(get_set_cells(statements[i])) ? "" : string(get_set_cells(statements[i])[1]))
+        append!(base_order, level_idxs)
+    end
+    base_rank = Dict((idx => pos) for (pos, idx) in enumerate(base_order))
+
+    active_set = Set(active_indices)
+    pending_deps = Dict{Int64, Int64}()
+    for idx in active_indices
+        pending_deps[idx] = count(dep -> dep in active_set, outneighbors(stmt_graph, idx))
+    end
+
+    ready = [idx for idx in active_indices if pending_deps[idx] == 0]
+    sort!(ready, by = idx -> base_rank[idx])
+
+    table_weight = 100
+    sheet_weight = 15
+    max_event_diags = 300
+
+    last_table = missing
+    last_sheet = missing
+    ordered = Int64[]
+    event_diags = String[]
+
+    table_affinity_picks = 0
+    sheet_affinity_picks = 0
+    dual_affinity_picks = 0
+    base_picks = 0
+    ready_size_sum = 0
+    max_ready_size = 0
+
+    while !isempty(ready)
+        ready_size_sum += length(ready)
+        max_ready_size = max(max_ready_size, length(ready))
+
+        base_choice = ready[1]
+        chosen = base_choice
+        chosen_score = -1
+        chosen_table_match = false
+        chosen_sheet_match = false
+
+        for candidate in ready
+            cand_stmt = statements[candidate]
+            cand_table = statement_table_key(cand_stmt)
+            cand_sheet = statement_sheet_key(cand_stmt)
+
+            table_match = !ismissing(last_table) && !ismissing(cand_table) && cand_table == last_table
+            sheet_match = !ismissing(last_sheet) && !ismissing(cand_sheet) && cand_sheet == last_sheet
+            score = (table_match ? table_weight : 0) + (sheet_match ? sheet_weight : 0)
+
+            if score > chosen_score || (score == chosen_score && base_rank[candidate] < base_rank[chosen])
+                chosen = candidate
+                chosen_score = score
+                chosen_table_match = table_match
+                chosen_sheet_match = sheet_match
+            end
+        end
+
+        if chosen_score == 0 || chosen == base_choice
+            base_picks += 1
+        else
+            if chosen_table_match && chosen_sheet_match
+                dual_affinity_picks += 1
+            elseif chosen_table_match
+                table_affinity_picks += 1
+            elseif chosen_sheet_match
+                sheet_affinity_picks += 1
+            end
+
+            if length(event_diags) < max_event_diags
+                reason = chosen_table_match && chosen_sheet_match ? "table+sheet" :
+                         chosen_table_match ? "table" : "sheet"
+                chosen_stmt = statements[chosen]
+                chosen_table = statement_table_key(chosen_stmt)
+                chosen_sheet = statement_sheet_key(chosen_stmt)
+                chosen_desc = to_string(exporter, chosen_stmt)
+                base_desc = to_string(exporter, statements[base_choice])
+                table_str = ismissing(chosen_table) ? "none" : table_name(chosen_table)
+                sheet_str = ismissing(chosen_sheet) ? "none" : string(chosen_sheet)
+                # push!(event_diags, "# [diag] affinity pick at step $(length(ordered)+1): reason=$reason table=\"$table_str\" sheet=\"$sheet_str\" over base=$base_desc chose=$chosen_desc ready=$(length(ready))")
+            end
+        end
+
+        deleteat!(ready, findfirst(==(chosen), ready))
+        push!(ordered, chosen)
+
+        chosen_stmt = statements[chosen]
+        last_table = statement_table_key(chosen_stmt)
+        last_sheet = statement_sheet_key(chosen_stmt)
+
+        for user in inneighbors(stmt_graph, chosen)
+            if !(user in active_set)
+                continue
+            end
+            pending_deps[user] -= 1
+            if pending_deps[user] == 0
+                push!(ready, user)
+            end
+        end
+        sort!(ready, by = idx -> base_rank[idx])
+    end
+
+    if length(ordered) != length(active_indices)
+        missing_nodes = filter(i -> !(i in ordered), active_indices)
+        sort!(missing_nodes, by = i -> base_rank[i])
+        append!(ordered, missing_nodes)
+        push!(event_diags, "# [diag] warning: scheduler left $(length(missing_nodes)) statement(s) unscheduled; appended in base order")
+    end
+
+    avg_ready = ready_size_sum / max(length(ordered), 1)
+    omitted_event_diags = max(0, (table_affinity_picks + sheet_affinity_picks + dual_affinity_picks) - length(event_diags))
+
+    write(io, "# Global Topological Schedule (Affinity Heuristic)\n")
+    write(io, "# [diag] table affinity weight=$table_weight, sheet affinity weight=$sheet_weight\n")
+    write(io, "# [diag] scheduled $(length(ordered)) statement(s), excluded $(length(input_statements)) input/base statement(s)\n")
+    write(io, "# [diag] decisions: base=$base_picks table=$table_affinity_picks sheet=$sheet_affinity_picks table+sheet=$dual_affinity_picks\n")
+    write(io, "# [diag] ready-set stats: avg=$(round(avg_ready, digits=2)) max=$max_ready_size\n")
+    if omitted_event_diags > 0
+        write(io, "# [diag] omitted $omitted_event_diags detailed affinity event line(s) to keep output manageable\n")
+    end
+    for line in event_diags
+        write(io, "$line\n")
+    end
+    write(io, "\n")
+
+    previous_table = missing
+    previous_sheet = missing
+    for (step, idx) in enumerate(ordered)
+        stmt = statements[idx]
+        current_table = statement_table_key(stmt)
+        current_sheet = statement_sheet_key(stmt)
+
+        if current_table !== previous_table || current_sheet !== previous_sheet
+            if !ismissing(current_table)
+                write(io, "# [diag] context step $step: table=\"$(table_name(current_table))\" sheet=\"$(ismissing(current_sheet) ? "none" : string(current_sheet))\"\n")
+            elseif !ismissing(current_sheet)
+                write(io, "# [diag] context step $step: sheet=\"$(current_sheet)\"\n")
+            else
+                write(io, "# [diag] context step $step: statement without sheet/table context\n")
+            end
+        end
+
+        dependents = statements[inneighbors(stmt_graph, idx)]
+        if !isempty(dependents)
+            # usages = "[" * join(to_string.((exporter,), dependents), ", ") * "]"
+            # write(io, "# Used in $(length(dependents)) places: $usages\n")
+            usages = if length(dependents) > 3
+                "[" * join(to_string.((exporter,), dependents[1:2]), ", ") * ", ..., " * to_string(exporter, dependents[end]) * "]"
+            else
+                "[" * join(to_string.((exporter,), dependents), ", ") * "]"
+            end
+            # usages = "[" * join(to_string.((exporter,), dependents), ", ") * "]"
+            write(io, "# Used in $(length(dependents)) places: $usages\n")
+        end
+
+        write(io, export_statement(exporter, wb, stmt))
+        previous_table = current_table
+        previous_sheet = current_sheet
+    end
+
+    write(io, "\n")
 end
 
 
@@ -1417,7 +1840,13 @@ function make_dataframe_declaration(exporter::PythonExporter, wb::ExcelWorkbook,
     # line_str = "\t$lhs = DataFrame(Base.convert(Matrix{Any}, zeros($num_rows, $num_cols)), [$(join(repr.(col_names), ", "))])"
     # line_str = "\t$lhs = pd.DataFrame({$(join(col_defs, ",\n\t"))})"
     cols_str = join(col_defs, ", ")
-    line_str = "\t$lhs = pd.DataFrame(\n\t\tnp.zeros($num_rows, $num_cols),\n\t\tcolumns=[$cols_str]\n\t)"
+    as_str(val) = val isa AbstractString ? repr(val) : string(val)
+    index_str = join(as_str.(row_name.(Ref(table), 1:num_rows)), ", ")
+    line_str = """\t$lhs = pd.DataFrame(
+    \t\tnp.zeros(($num_rows, $num_cols), dtype=object),
+    \t\tcolumns=[$cols_str],
+    \t\tindex=[$index_str],
+    \t)"""
     # line_str = "\t$lhs = Base.convert(Matrix{Any}, zeros($num_rows, $num_cols))"
 
     line_str
@@ -1535,19 +1964,17 @@ function make_input_table_struct(exporter::PythonExporter, wb::ExcelWorkbook, st
     push!(lines, struct_def)
 
     input_statements = get_input_statements(statements)
-    input_table_stmts = filter(s -> s isa TableStatement, input_statements)
+    # for s in input_statements
+    #     if !(s isa TableStatement || s isa BroadcastedStatement)
+    #         println("Input statement of unknown type: $s")
+    #     end
+    # end
+    input_table_stmts = filter(s -> s isa TableStatement || s isa BroadcastedStatement, input_statements)
     grouped_by_set_table = group_to_dict(input_table_stmts, get_set_table)
     push!(lines, "def make_input_tables():")
 
     for table in tables
         push!(lines, make_dataframe_declaration(exporter, wb, table))
-        # lhs = getname(table)
-        # num_rows, num_cols = size(table)
-        # col_names = [column_name(table, c) for c in 1:num_cols]
-        # # line_str = "\t$lhs = DataFrame(Base.convert(Matrix{Any}, zeros($num_rows, $num_cols)), [$(join(repr.(col_names), ", "))])"
-        # line_str = "\t$lhs = Base.convert(Matrix{Any}, zeros($num_rows, $num_cols))"
-        # push!(lines, line_str)
-        # write(output_file, line_str * "\n")
     end
     push!(lines, "")
 
@@ -1559,13 +1986,39 @@ function make_input_table_struct(exporter::PythonExporter, wb::ExcelWorkbook, st
 
         sort!(group, by = s -> get_set_cells(s)[1])
 
+        num_set_cells = s -> length(s.assigned_vars)
         get_row_num = s -> rownum(s.assigned_vars[1])
         get_col_num = s -> colnum(s.assigned_vars[1])
 
-        row_nums = get_row_num.(group)
-        col_nums = get_col_num.(group)
+        debug = getname(table) == "tab_oyster_Husbandry_model_HC6_HM11"
+        if debug
+            println("Found debug table")
+            @display group
+        end
+
+        sets_single_cell_mask = num_set_cells.(group) .== 1
+
+        for s in findall(.!sets_single_cell_mask)
+            if debug
+                @show group[s]
+            end
+            string = export_statement(exporter, wb, group[s])
+            push!(lines, indent(rstrip(string), 1))
+        end
+        row_nums = get_row_num.(group)[sets_single_cell_mask]
+        col_nums = get_col_num.(group)[sets_single_cell_mask]
+
+
         coords = zip(col_nums, row_nums) |> collect
-        coord_to_statement = Dict(c => s for (c, s) in zip(coords, group))
+        coord_to_statement = Dict(c => s for (c, s) in zip(coords, group[sets_single_cell_mask]))
+        if debug
+            for (c, r) in coords
+                if row_name(table, r - startrow(table) + 1) == "Harvest: change out filled container"
+                    statement = coord_to_statement[(c, r)]
+                    # @show r c statement
+                end
+            end
+        end
         regions = get_2d_regions(coords)
         for region in regions
             cols, rows = region
@@ -1585,11 +2038,10 @@ function make_input_table_struct(exporter::PythonExporter, wb::ExcelWorkbook, st
                 lhs = convert_to_broadcasted(first_statement.lhs_expr, length(rows) - 1, length(cols) - 1)
                 # stmts = Matrix{AbstractStatement}(undef, length(rows), length(cols))
                 stmts = [coord_to_statement[(c, r)] for r in rows, c in cols]
-                convert_stmt = s -> convert(exporter, s.rhs_expr, table.sheet_name)
+                convert_stmt(s::TableStatement) = convert(exporter, s.rhs_expr, table.sheet_name)
                 stmt_strs = convert_stmt.(stmts)
-                # rhs_strings = map(s -> convert(exporter, s.rhs_expr, table.sheet_name), region_statements)
-                joined = if length(cols) > 1
-                    join(map(v -> join(v, " "), eachrow(stmt_strs)), ";")
+                joined = if length(cols) > 1 && length(rows) > 1
+                    join(map(v -> string('[', join(v, ", "), ']'), eachrow(stmt_strs)), ", ")
                 else
                     join(vec(stmt_strs), ", ")
                 end
@@ -1612,12 +2064,12 @@ function make_input_table_struct(exporter::PythonExporter, wb::ExcelWorkbook, st
     end
     push!(lines, "")
 
-    push!(lines, "\tTables(")
+    push!(lines, "\treturn Tables(")
     for table in tables
         push!(lines, "\t\t" * getname(table) * ",")
     end
 
-    # push!(lines, "\t)")
+    push!(lines, "\t)\n")
     # push!(lines, "end")
 
     join(lines, "\n")
@@ -1626,7 +2078,12 @@ end
 function write_file(exporter::PythonExporter, file_name::AbstractString, wb::ExcelWorkbook, statements::AbstractArray{AbstractStatement})
     output_file = open(file_name, "w")
 
+    write(output_file, "from dataclasses import dataclass\n")
+    write(output_file, "import datetime\n")
+    write(output_file, "from typing import Any\n")
+    write(output_file, "import numpy as np\n")
     write(output_file, "import pandas as pd\n")
+    write(output_file, "import python_funcs as xl\n\n")
     # write(output_file, "using DataFrames\n\n")
     # write(output_file, "using Dates\n\n")
     # write(
@@ -1657,7 +2114,9 @@ function write_file(exporter::PythonExporter, file_name::AbstractString, wb::Exc
 
     write(output_file, make_input_table_struct(exporter, wb, statements), "\n")
 
-    write(output_file, "def calculate(inputs:Inputs, tables:Tables)\n")
+    # write(output_file, "def calculate(inputs:Inputs, tables:Tables)\n")
+    write(output_file, "inputs = Inputs()\n")
+    write(output_file, "tables = make_input_tables()\n\n")
 
     for table in exporter.tables
         lhs = getname(table)
@@ -1686,7 +2145,7 @@ function write_file(exporter::PythonExporter, file_name::AbstractString, wb::Exc
         exporter.var_names[k] = v
     end
 
-    write(output_file, "end\n")
+    # write(output_file, "end\n")
     # write(output_file, "\ncalculate()")
 
     # run_str = """function run_crest_solar()

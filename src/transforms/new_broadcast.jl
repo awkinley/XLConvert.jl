@@ -266,10 +266,12 @@ function new_broadcast(statements::Vector{AbstractStatement}, stmt_graph::DiGrap
                 #     continue
                 # end
 
-                if length(chain_lhs) > 3
-                    @show chain_lhs[begin:3]
-                else
-                    @show chain_lhs
+                if debug
+                    if length(chain_lhs) > 3
+                        @show chain_lhs[begin:3]
+                    else
+                        @show chain_lhs
+                    end
                 end
 
                 chain_param_rows = [node_to_param_i[n] for n in chain]
@@ -602,9 +604,9 @@ function split_broadcast_runs(ch::Chunk2D, ctx::BroadcastCtx)
     params_mat = ctx.params[idxs, :]
     # @show size(ctx.params) size(idxs) size(params_mat)
 
-    # shape = 2 x rows x cols x param_num
     # first index is (row_coord, col_coord)
     if !isempty(params_mat)
+        # shape = 2 x rows x cols x param_num
         param_coords = stack(get_param_cell_coords, params_mat)
         # @display param_coords
 
@@ -613,6 +615,11 @@ function split_broadcast_runs(ch::Chunk2D, ctx::BroadcastCtx)
         for i in axes(param_coords, 4)
             # println("Param $i")
             coords = @view param_coords[:, :, :, i]
+            # @display coords
+            # if i == 4
+            #     # @display params_mat[1:2, 1:2, i]
+            #     @display params_mat[:, 1, i]
+            # end
 
             if any(ismissing, coords)
                 continue
@@ -620,13 +627,16 @@ function split_broadcast_runs(ch::Chunk2D, ctx::BroadcastCtx)
 
             rows = @view coords[1, :, :]
             cols = @view coords[2, :, :]
-            # @display rows[1:2, 1:2]
-            # @display cols[1:2, 1:2]
 
             row_behavior = identify_broadcast_behavior(rows)
             col_behavior = identify_broadcast_behavior(cols)
-
-            # @show row_behavior col_behavior
+            # if i == 4
+            #     # @display rows[1:2, 1:2]
+            #     # @display cols[1:2, 1:2]
+            #     @display rows
+            #     @display cols
+            #     @show row_behavior col_behavior
+            # end
 
             param_broadcast_behavior[i, :] .= (row_behavior, col_behavior)
         end
@@ -745,8 +755,10 @@ function parse_single_table_ref(expr::ExcelExpr)
         return nothing
     end
 
-    row = to_single_index(row_idx)
-    col = to_single_index(col_idx)
+    # row = to_single_index(row_idx)
+    # col = to_single_index(col_idx)
+    row = row_idx
+    col = col_idx
     if isnothing(row) || isnothing(col)
         return nothing
     end
@@ -766,13 +778,13 @@ function materialize_chunk(chunk::AbstractChunk, ctx::BroadcastCtx, func)
     # @display params
 
     function fallback()
-        # println("\nMaking grouped statement!!\n")
+        # println("\nMaking grouped statement!!")
         # println("Falling back to grouped statement")
         GroupedStatement(vec(stmts))
     end
 
     function fallback(msg)
-        # println("\nMaking grouped statement!!\n")
+        # println("\nMaking grouped statement!!")
         # println("Fallback because: ", msg)
         GroupedStatement(vec(stmts))
     end
@@ -834,7 +846,7 @@ function materialize_chunk(chunk::AbstractChunk, ctx::BroadcastCtx, func)
     end
 
     base_func = func isa FastHashedFlatExpr ? func.expr : func
-    param_replacements = Dict{Int, ExcelExpr}()
+    # param_replacements = Dict{Int, ExcelExpr}()
     num_params = size(params, 3)
 
     for p_i in 1:num_params
@@ -861,10 +873,10 @@ function materialize_chunk(chunk::AbstractChunk, ctx::BroadcastCtx, func)
 
         if !is_changing
             if length(rows[1]) > 1 || length(cols[1]) > 1
-                param_replacements[p_i] = ExcelExpr(:broadcast_protect, first_param)
+                # param_replacements[p_i] = ExcelExpr(:broadcast_protect, first_param)
                 continue
             else
-                param_replacements[p_i] = first_param
+                # param_replacements[p_i] = first_param
                 continue
             end
         end
@@ -934,22 +946,22 @@ function materialize_chunk(chunk::AbstractChunk, ctx::BroadcastCtx, func)
         # if any(s -> !(s isa Int), col_behavior)
         #     @show col_behavior
         # end
-        row_idx = row_idx:(row_idx + first(row_behavior[1]) * row_offset + first(row_behavior[2]) * col_offset)
-        col_idx = col_idx:(col_idx + first(col_behavior[1]) * row_offset + first(col_behavior[2]) * col_offset)
+        # row_idx = row_idx:(row_idx + first(row_behavior[1]) * row_offset + first(row_behavior[2]) * col_offset)
+        # col_idx = col_idx:(col_idx + first(col_behavior[1]) * row_offset + first(col_behavior[2]) * col_offset)
 
-        @assert first(row_idx) >= 1
-        @assert last(row_idx) <= size(first_ref.table)[1]
-        @assert first(col_idx) >= 1
-        @assert last(col_idx) <= size(first_ref.table)[2]
-        param_replacements[p_i] = ExcelExpr(:table_ref, first_ref.table, row_idx, col_idx, first_ref.fixed_row, first_ref.fixed_col)
+        # @assert first(row_idx) >= 1
+        # @assert last(row_idx) <= size(first_ref.table)[1]
+        # @assert first(col_idx) >= 1
+        # @assert last(col_idx) <= size(first_ref.table)[2]
+        # param_replacements[p_i] = ExcelExpr(:table_ref, first_ref.table, row_idx, col_idx, first_ref.fixed_row, first_ref.fixed_col)
     end
     # @display param_replacements
 
-    rhs_expr = try
-        replace_func_params(base_func, param_replacements)
-    catch
-        return fallback()
-    end
+    # rhs_expr = try
+    #     replace_func_params(base_func, param_replacements)
+    # catch
+    #     return fallback()
+    # end
 
     # If we can broadcast everything, then we have to generate the broadcasted expression
     # look in src/grouped_statements.jl and specifically at the replace_func_params function for 
@@ -970,7 +982,8 @@ function materialize_chunk(chunk::AbstractChunk, ctx::BroadcastCtx, func)
     rhs_dependencies = reduce(vcat, get_cell_deps.(vec(stmts))) |> unique |> collect
 
     # println("\nMaking table statement!!\n")
-    TableStatement(lhs_expr, assigned_vars, rhs_expr, rhs_dependencies, true)
+    # TableStatement(lhs_expr, assigned_vars, rhs_expr, rhs_dependencies, true)
+    BroadcastedStatement(lhs_expr, assigned_vars, base_func, params, rhs_dependencies)
 end
 
 function materialize_chunks(chunks::Vector{AbstractChunk}, ctx::BroadcastCtx, func)

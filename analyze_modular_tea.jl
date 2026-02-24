@@ -1,0 +1,2835 @@
+if false
+    include("./src/XLConvert.jl")
+end
+using AutoHashEquals
+using XLConvert
+using XLConvert: FlatExpr, FlatIdx
+using XLSX
+using Graphs
+using Match
+
+convert_is_blank!(expr) = expr
+function convert_is_blank!(expr::FlatExpr)
+    for (i, part) in enumerate(expr.parts)
+        if @ismatch part ExcelExpr(:eq, [FlatIdx(idx), ""])
+            expr.parts[i] = ExcelExpr(:call, Any["ISBLANK", FlatIdx(idx)])
+        end
+    end
+
+    expr
+end
+
+function is_blank_transform!(statements::AbstractArray{AbstractStatement})
+    for s in statements
+        XLConvert.apply_expr_transform!(s, (_, expr) -> convert_is_blank!(expr))
+    end
+end
+
+convert_if_one_zero!(expr) = expr
+function convert_if_one_zero!(expr::FlatExpr)
+    for (i, part) in enumerate(expr.parts)
+        @flat_match expr part begin
+            ExcelExpr(:call, ["IF", ExcelExpr(:eq, [a, b]), 1, 0]) => begin
+                # println("Convert if one zero found something!")
+                # @display expr
+                expr.parts[i] = ExcelExpr(:eq, a, b)
+            end
+            _ => continue
+        end
+        # if @ismatch part ExcelExpr(:eq, [FlatIdx(idx), ""])
+        #     expr.parts[i] = ExcelExpr(:call, Any["ISBLANK", FlatIdx(idx)])
+        # end
+    end
+
+    expr
+end
+
+function if_one_zero_transform!(statements::AbstractArray{AbstractStatement})
+    for s in statements
+        XLConvert.apply_expr_transform!(s, (_, expr) -> convert_if_one_zero!(expr))
+    end
+end
+
+convert_indirects!(expr) = expr
+function convert_indirects!(expr::FlatExpr)
+    for (i, part) in enumerate(expr.parts)
+        @flat_match expr part begin
+
+            ExcelExpr(
+                :range,
+                [
+                    ExcelExpr(:table_ref, range_left_args),
+                    ExcelExpr(
+                        :call,
+                        ["INDIRECT", ExcelExpr(:call, ["ADDRESS",
+                            ExcelExpr(:call, ["ROW", ExcelExpr(:table_ref, row_args)]),
+                            ExcelExpr(:-, [ExcelExpr(:+, [ExcelExpr(:call, ["COLUMN", ExcelExpr(:table_ref, col_args)]), add_rhs]), sub_rhs]),
+                            # indirect_column,
+                        ])],
+                    ),
+                ],
+            ) => begin
+
+                if range_left_args == row_args && range_left_args == col_args
+                    @show range_left_args row_args col_args add_rhs sub_rhs
+                end
+
+            end
+            # ExcelExpr(:call, ["IF", ExcelExpr(:eq, [a, b]), 1, 0]) => begin
+            #     # println("Convert if one zero found something!")
+            #     # @display expr
+            #     expr.parts[i] = ExcelExpr(:eq, a, b)
+            # end
+            _ => continue
+        end
+        # if @ismatch part ExcelExpr(:eq, [FlatIdx(idx), ""])
+        #     expr.parts[i] = ExcelExpr(:call, Any["ISBLANK", FlatIdx(idx)])
+        # end
+    end
+
+    expr
+end
+
+function indirect_transform!(statements::AbstractArray{AbstractStatement})
+    for s in statements
+        XLConvert.apply_expr_transform!(s, (_, expr) -> convert_indirects!(expr))
+    end
+end
+
+struct IndirectXlookupRangeHandler end
+
+function XLConvert.handle(::IndirectXlookupRangeHandler, expr::ExcelExpr, exporter::PythonExporter, ctx::XLConvert.PyExporterCtx)
+    func = a -> XLConvert.convert(exporter, a, ctx)
+    @match expr begin
+        ExcelExpr(
+            :range,
+            [
+                ExcelExpr(:call, ["INDIRECT", ExcelExpr(:call, ["CELL", "address", ExcelExpr(:call, ["_xlfn.XLOOKUP", val, ref, value])])]),
+                ExcelExpr(:call, ["INDIRECT", ExcelExpr(:call, ["CELL", "address", ExcelExpr(:call, ["_xlfn.XLOOKUP", val2, ref, value])])]),
+            ],
+        ) => begin
+            # println("Convert convert_indirect_xlookup_range found something!")
+            ref_str = func(ref)
+            col_str = func(value)
+            mask_str = "($(ref_str) >= $(func(val))) & ($(ref_str) <= $(func(val2)))"
+
+            "$col_str[$mask_str]"
+        end
+        _ => missing
+    end
+end
+
+struct EdgeCaseHandler end
+
+function XLConvert.handle(::EdgeCaseHandler, expr::ExcelExpr, exporter::PythonExporter, ctx::XLConvert.PyExporterCtx)
+    func = a -> XLConvert.convert(exporter, a, ctx)
+
+    function make_ifs_mask(args)
+        @assert length(args) % 2 == 0
+        conds = String[]
+        for i in 1:(length(args)÷2)
+            test_val = args[2*i-1]
+            test_val_str = func(test_val)
+            # test_val_str = @match test_val begin
+            #     ExcelExpr(:table_ref, [table, row_ref, col_ref, _, _]) where size(table)[1] == 1 => begin
+
+            #         if length(col_ref) == size(table)[2]
+            #             "$(getname(table)).iloc[0, :]"
+            #         else
+            #             col_name = [string(column_name(table, c)) for c in col_idx]
+            #             col_idx = "$(repr(col_name[begin])):$(repr(col_name[end]))"
+            #             first_row = row_name(table, 1)
+            #             "$(getname(table)).loc[$first_row, $cold_idx]"
+            #         end
+            #     end
+            #     _ => func(test_val)
+            # end
+            test = args[2*i]
+            cond = @match test begin
+                "<>#N/A" => "~pd.isna($(func(test_val)))"
+                "<>FALSE" => "($(func(test_val)) != False)"
+                val::AbstractString => begin
+                    if any(s -> startswith(val, s), [">", "<"])
+                        "($test_val_str $val)"
+                    else
+                        "($test_val_str == $(repr(val)))"
+                    end
+
+                end
+                ExcelExpr(:&, [">", val::ExcelExpr]) => "($test_val_str > $(func(val)))"
+                ExcelExpr(:&, ["<", val::ExcelExpr]) => "($test_val_str < $(func(val)))"
+                val::ExcelExpr => begin
+                    val_type = get_type(val, XLConvert.sheetname(ctx), exporter.cell_types, exporter.named_values)
+                    # @show val_type
+                    # @show val_type <: AbstractString
+                    if val_type <: AbstractString
+                        "xl.match_case_insensitive($(func(test_val)), $(func(val)))"
+                    else
+                        "xl.as_array($test_val_str == $(func(val)))"
+                    end
+                end
+                val::Number => begin
+                    "($test_val_str == $(func(val)))"
+                end
+                _ => missing
+            end
+            if ismissing(cond)
+                println("Make ifs mask got a test value it didn't recognize!")
+                @show test
+                throw("make_ifs_mask error")
+            else
+                push!(conds, cond)
+            end
+        end
+
+        join(conds, " & ")
+    end
+
+    @match expr begin
+        ExcelExpr(:call, ["_xlfn.MAKEARRAY", val, rest...]) => begin
+            func(val)
+        end
+        ExcelExpr(:error_ref, [error]) => begin
+            # repr(error)
+            "pd.NA"
+        end
+        ExcelExpr(:call, ["_xlfn._xlws.FILTER", vals, ExcelExpr(:eq, [test_lhs, test_rhs])]) => begin
+            vals_str = func(vals)
+            "$vals_str[$(func(test_lhs)) == $(func(test_rhs))]"
+        end
+        ExcelExpr(:call, ["_xlfn._xlws.FILTER", vals, ExcelExpr(:call, ["IFERROR", error_range, 0])]) => begin
+            vals_str = func(vals)
+            "$vals_str[~pd.isna($vals_str) & ($vals_str != 0.0)]"
+        end
+        ExcelExpr(:call, ["_xlfn._xlws.FILTER", vals, test_vals]) => begin
+            # FILTER(range, range) is used as range[~pd.isna(range)]
+            vals_str = func(vals)
+            test_vals_str = func(test_vals)
+            "$vals_str[~pd.isna($test_vals_str) & ($test_vals_str != 0.0)]"
+
+        end
+        ExcelExpr(:call, ["_xlfn.MAXIFS", vals, args...]) => begin
+            vals_str = func(vals)
+            mask = make_ifs_mask(args)
+
+            "xl.max($vals_str[$mask])"
+        end
+        ExcelExpr(:call, ["_xlfn.MINIFS", vals, args...]) => begin
+            vals_str = func(vals)
+            mask = make_ifs_mask(args)
+
+            "xl.min($vals_str[$mask])"
+        end
+        ExcelExpr(:call, ["SUMIFS", vals, args...]) => begin
+
+            vals_str = @match vals begin
+                ExcelExpr(:table_ref, [table, row_ref, col_ref, _, _]) where size(table)[1] == 1 => begin
+                    if length(col_ref) == size(table)[2]
+                        "$(getname(table)).iloc[0, :]"
+                    else
+                        col_name = [string(column_name(table, c)) for c in col_idx]
+                        col_idx = "$(repr(col_name[begin])):$(repr(col_name[end]))"
+                        first_row = row_name(table, 1)
+                        "$(getname(table)).loc[$first_row, $cold_idx]"
+                    end
+                end
+                _ => func(vals)
+            end
+            # vals_str = func(vals)
+            mask = make_ifs_mask(args)
+
+            "xl.xlsum($vals_str[$mask])"
+        end
+        ExcelExpr(:call, ["SUMIF", vals, "<>#N/A"]) => begin
+            vals_str = func(vals)
+            "xl.xlsum($vals_str[~pd.isna($vals_str)])"
+        end
+        ExcelExpr(:call, ["COUNTIFS", args...]) => begin
+            mask = make_ifs_mask(args)
+            "xl.xlsum($mask)"
+        end
+        ExcelExpr(:call, ["AVERAGEIFS", range, args...]) => begin
+            mask = make_ifs_mask(args)
+            "xl.average($(func(range))[$mask])"
+        end
+        ExcelExpr(:/, [num::Number, denom]) => begin
+
+            left_affinity, right_affinity = XLConvert.op_binding_affinity(:/)
+            wrap_parens = left_affinity < XLConvert.bindingaffinity(ctx)
+            rhs_str = XLConvert.convert(exporter, denom, XLConvert.withbindingaffinity(ctx, right_affinity))
+
+            binop_str = "np.float64($num) / $rhs_str"
+            if wrap_parens
+                "(" * binop_str * ")"
+            else
+                binop_str
+            end
+        end
+        ExcelExpr(:call, ["_xlfn.XLOOKUP",
+            ExcelExpr(:&, [concat_lhs, concat_rhs]),
+            ExcelExpr(:&, [row_lhs, row_rhs]),
+            ExcelExpr(:table_ref, [res_table, res_row_idx, res_col_idx, _, _]),
+            missing,
+            1.0]
+        ) => begin
+            # Handles a very specific case to transform some code that's tough to make python match
+            # if length(res_row_idx) != size(res_table)[1]
+            #     @match_fail
+            # end
+
+            @assert length(res_col_idx) == 1
+
+            # @show res_col_idx
+            println("Applying xlookup -> pandas indexing rule")
+
+            col_name = XLConvert.column_name(res_table, first(res_col_idx))
+            row_subset = string(XLConvert.row_name(res_table, first(res_row_idx)), ":", XLConvert.row_name(res_table, last(res_row_idx)))
+            "$(getname(res_table)).loc[$row_subset].loc[($(func(concat_rhs)) == $(func(row_rhs))) & ($(func(concat_lhs)) <= ($(func(row_lhs)))), $(repr(col_name))]"
+        end
+        ExcelExpr(:-, [ExcelExpr(:-, [ExcelExpr(:eq, [lhs, rhs])])]) => begin
+            # equations like:
+            # --(A1:A10 = B1)
+            # this is used in a sum product to act like a mask, but xl_eq doesn't like ranges, so rewrite as basic ==
+            "($(func(lhs)) == $(func(rhs)))"
+        end
+        ExcelExpr(
+            :range,
+            [
+                ExcelExpr(:table_ref, range_left_args),
+                ExcelExpr(:call, ["INDIRECT", ExcelExpr(:call, ["ADDRESS",
+                    ExcelExpr(:call, ["ROW", ExcelExpr(:table_ref, row_args)]),
+                    ExcelExpr(:-, [ExcelExpr(:+, [ExcelExpr(:call, ["COLUMN", ExcelExpr(:table_ref, col_args)]), add_rhs]), sub_rhs]),
+                    # indirect_column,
+                ])]),
+            ],
+        ) => begin
+
+            # @show range_left_args row_args col_args add_rhs sub_rhs
+            table = range_left_args[1]
+            # table, row_idx, col_idx, _, _ = range_left_args
+            row_idx = startrow(row_args[1]) + row_args[2] - startrow(table) - 1
+            col_idx = startcol(col_args[1]) + col_args[3] - startcol(table) - 1
+            tbl_name = getname(table)
+            "$tbl_name.iloc[$row_idx, $col_idx:($(col_idx + 1) + int($(func(add_rhs)) - $(func(sub_rhs))))]"
+
+        end
+        ExcelExpr(
+            :range,
+            [
+                ExcelExpr(:table_ref, range_left_args),
+                ExcelExpr(:call, ["INDIRECT", ExcelExpr(:call, ["ADDRESS",
+                    ExcelExpr(:call, ["ROW", ExcelExpr(:table_ref, row_args)]),
+                    ExcelExpr(:-, [ExcelExpr(:+, [ExcelExpr(:call, ["COLUMN", ExcelExpr(:cell_ref, col_args)]), add_rhs]), sub_rhs]),
+                ])]),
+            ],
+        ) => begin
+
+            # @show range_left_args row_args col_args add_rhs sub_rhs
+            table = range_left_args[1]
+            # table, row_idx, col_idx, _, _ = range_left_args
+            row_idx = startrow(row_args[1]) + row_args[2] - startrow(table) - 1
+            col_idx = XLConvert.colnum(CellDependency(col_args[2], col_args[1])) - startcol(table)
+            tbl_name = getname(table)
+            "$tbl_name.iloc[$row_idx, $col_idx:($(col_idx + 1) + int($(func(add_rhs)) - $(func(sub_rhs))))]"
+
+        end
+        _ => missing
+    end
+end
+
+
+function get_cell_range_size(expr::FlatExpr, part_idx)
+    @match expr.parts[part_idx] begin
+        ExcelExpr(:sheet_ref, [sheet, child]) => get_cell_range_size(expr, child.i)
+        ExcelExpr(:range, [FlatIdx(lhs_i), FlatIdx(rhs_i)]) => begin
+
+            lhs_expr = expr.parts[lhs_i]
+            rhs_expr = expr.parts[rhs_i]
+            if !((lhs_expr.head == :cell_ref) && (rhs_expr.head == :cell_ref))
+                return nothing
+            end
+            sheet = lhs_expr.args[2]
+            if (sheet != rhs_expr.args[2])
+                return nothing
+            end
+
+            lhs = lhs_expr.args[1]
+            rhs = rhs_expr.args[1]
+
+            start_col, start_row = XLConvert.parse_cell(lhs)
+            end_col, end_row = XLConvert.parse_cell(rhs)
+
+            @assert end_row >= start_row
+            @assert end_col >= start_col
+
+            return (end_row - start_row + 1, end_col - start_col + 1)
+        end
+        _ => nothing
+    end
+end
+
+function get_spill_size(expr::FlatExpr)
+    @match expr.parts[1] begin
+        ExcelExpr(:call, ["TRANSPOSE", arg]) => begin
+            cell_range_size = get_cell_range_size(expr, arg.i)
+            isnothing(cell_range_size) && return nothing
+
+            return reverse(cell_range_size)
+        end
+        _ => return nothing
+    end
+end
+
+function handle_spill(wb::XLConvert.ExcelWorkbook2)
+    spill_funcs = [
+        "TRANSPOSE", "SEQUENCE", "SORT", "SORTBY", "UNIQUE",
+    ]
+
+    spilling_cells = Vector{CellDependency}()
+
+    function can_spill(expr)
+        if @ismatch expr.parts[1] ExcelExpr(:call, args)
+            if args[1] in spill_funcs
+                return true
+            end
+        end
+
+        false
+    end
+
+    for (cell, data) in wb.cell_dict
+        expr = get_expr(data)
+        expr isa FlatExpr || continue
+
+        if can_spill(expr)
+            println("$cell is a formula that can spill")
+            spill_size = get_spill_size(expr)
+            println("Spill size = $spill_size")
+
+            show(stdout, "text/plain", expr)
+
+
+            colnum, rownum = XLConvert.get_coords(cell)
+            # rownum += 1
+            # colnum += 1
+            spill_rows = rownum:(rownum+spill_size[1]-1)
+            spill_cols = colnum:(colnum+spill_size[2]-1)
+            # @show spill_rows spill_cols
+
+            for r in spill_rows, c in spill_cols
+                (r, c) == (rownum, colnum) && continue
+
+                cell_dep = CellDependency(cell.sheet_name, XLConvert.index_to_cellname(c, r))
+                # println("Setting $cell_dep as a spill cell")
+                new_expr = XLConvert.insert_expr_front(expr, ExcelExpr(:spill_ref, Any[r-rownum+1, c-colnum+1, XLConvert.FlatIdx(1)]))
+                wb.cell_dict[cell_dep] = XLConvert.SpillCell(cell_dep, new_expr)
+                wb.cell_dependencies[cell_dep] = wb.cell_dependencies[cell]
+            end
+
+            push!(spilling_cells, cell)
+        end
+    end
+
+    println("Found $(length(spilling_cells)) cells that can spill")
+end
+
+struct FunctionExpr
+    func::XLConvert.FlatExpr
+    params::Vector{ExcelExpr}
+end
+
+
+# struct CompressedWorkbook
+#     xf::XLSX.XLSXFile
+#     cell_numbering::ObjectNumbering{CellDependency}
+#     cell_dict::Dict{CellDependency, Any}
+#     cell_graph::Graphs.SimpleDiGraph{Int64}
+#     key_values::Dict{String, Any}
+# end
+
+function make_compressed_workbook(wb::XLConvert.ExcelWorkbook2)
+    exprs = [get_expr(cell) for cell in values(wb.cell_dict) if cell isa XLConvert.FormulaCell]
+
+    func_exprs = Vector{FunctionExpr}()
+    funcs = Set{FlatExpr}()
+
+    for e in exprs
+        func, params = XLConvert.functionalize(e)
+        if func in funcs
+            func = pop!(funcs, func)
+        end
+        push!(funcs, func)
+    end
+
+
+end
+
+function recalc_deps!(wb::XLConvert.ExcelWorkbook2, cell::CellDependency)
+    node = get_num(wb, cell)
+    starting_deps = outneighbors(wb.cell_graph, node)
+    keep_deps = Set{Int64}()
+    start_deps_set = Set(starting_deps)
+
+    # for dep in outneighbors(wb.cell_graph, node)
+    #     rem_edge!(wb.cell_graph, node, dep)
+    # end
+
+    expr = get_expr(wb.cell_dict[cell])
+    dep_cells = try
+        XLConvert.get_expr_dependency_ranges(expr, wb.key_values)
+    catch e
+        @show cell
+        @display expr
+        throw(e)
+
+    end
+    unique!(dep_cells)
+
+    function handle_dep(dep)
+        if dep in start_deps_set
+            push!(keep_deps, dep)
+        else
+            add_edge!(wb.cell_graph, node, dep)
+        end
+    end
+
+
+    for dep in dep_cells
+        if dep isa CellDependency
+            num = XLConvert.get_num!(wb.cell_numbering, dep)
+            handle_dep(num)
+            # add_edge!(wb.cell_graph, node, num)
+        else
+            sheet = dep.first.sheet_name
+            (start_col, start_row) = XLConvert.start_coord(dep)
+            (end_col, end_row) = XLConvert.end_coord(dep)
+            for r ∈ start_row:end_row, c ∈ start_col:end_col
+                num = XLConvert.get_num!(wb.cell_numbering, CellDependency(sheet, c, r))
+                handle_dep(num)
+                # add_edge!(wb.cell_graph, node, num)
+            end
+        end
+    end
+
+    deps_to_remove = setdiff(start_deps_set, keep_deps)
+    for d in deps_to_remove
+        rem_edge!(wb.cell_graph, node, d)
+    end
+
+end
+
+function apply_formula_override!(wb, cell, new_formula)
+    # Need to change the cell_dict entry, and recalculate outneighbor dependencies
+    cell_value = wb.cell_dict[cell] 
+    @assert cell_value isa XLConvert.FormulaCell
+
+    println("$cell has formula $(cell_value.cell.formula.formula), is being replaced with $new_formula")
+
+    expr = XLConvert.toexpr(new_formula)
+    expr = XLConvert.lower_sheet_names!(expr, cell.sheet_name)
+    flat_expr = XLConvert.convert_to_flat_expr(expr)
+    wb.cell_dict[cell] = XLConvert.FormulaCell(cell_value.cell, flat_expr)
+
+    recalc_deps!(wb, cell)
+end
+
+
+function get_transpose_dep_forwards(wb::XLConvert.ExcelWorkbook2)
+    dep_forwards = Dict{CellDependency, CellDependency}()
+
+    for (cell, data) in wb.cell_dict
+        expr = get_expr(data)
+        expr isa FlatExpr || continue
+
+        if @ismatch expr.parts[1] ExcelExpr(:call, ["TRANSPOSE", range])
+            cell_row = rownum(cell)
+            cell_col = colnum(cell)
+
+            # println("$cell is a transpose")
+            # (num_rows, num_cols)
+            spill_size = get_spill_size(expr)
+            transposed_range = part_to_workbook_range(expr, range)
+            if isnothing(transposed_range)
+                println("Found a tranpose that couldn't be cleanly forwarded, $cell")
+                continue
+            end
+            # @display expr
+            # Because I'm bad at being consistent, this range cells is indexed [col, row]
+            range_cells = XLConvert.cells(transposed_range)
+            first = cell
+            out_region = WorkbookRegion(cell, CellDependency(cell.sheet_name, cell_col + spill_size[2] - 1, cell_row + spill_size[1] - 1))
+            println("Forwarding to $out_region to $transposed_range")
+
+            for r in 1:spill_size[1], c in 1:spill_size[2]
+                spilled_cell = CellDependency(cell.sheet_name, cell_col + c - 1, cell_row + r - 1)
+                # println("Creaeting dep forward $spilled_cell => $(range_cells[r, c])")
+                dep_forwards[spilled_cell] = range_cells[r, c]
+            end
+
+
+
+        end
+    end
+
+    dep_forwards
+end
+
+function apply_dep_forwards!(wb::XLConvert.ExcelWorkbook2, forwards::Dict{CellDependency, CellDependency})
+
+    handled = Set{Int64}()
+
+    # modified_cells = Set{CellDependency}()
+
+    for (original_cell, new_cell) in forwards
+        start_node = get_num(wb, original_cell)
+        users = inneighbors(wb.cell_graph, start_node)
+
+        new_val = ExcelExpr(:cell_ref, Any[new_cell.cell, new_cell.sheet_name])
+
+        for user in users
+            user_cell = get_cell(wb, user)
+            cell_value = wb.cell_dict[user_cell]
+            expr = get_expr(cell_value)
+            # @display expr
+
+            empty!(handled)
+
+            for (i, part) in enumerate(expr.parts)
+                i in handled && continue
+
+                @flat_match expr part begin
+                    ExcelExpr(:cell_ref, [cell, sheet]) => begin 
+                        ref_cell = CellDependency(sheet, cell)
+                        if CellDependency(sheet, cell) == original_cell
+                            expr.parts[i] = new_val
+                        end
+
+                        if ref_cell in keys(forwards)
+                            forwarded = forwards[ref_cell]
+                            expr.parts[i] = ExcelExpr(:cell_ref, Any[forwarded.cell, forwarded.sheet_name])
+                        end
+
+                    end
+                    ExcelExpr(:range, [ExcelExpr(:cell_ref, [lhs, sheet]), ExcelExpr(:cell_ref, [rhs, sheet])]) => begin
+                        lhs_cell = CellDependency(sheet, lhs)
+                        rhs_cell = CellDependency(sheet, rhs)
+                        if lhs_cell == CellDependency("Site Inputs", "C68")
+                            if (lhs_cell in keys(forwards)) || (rhs_cell in keys(forwards))
+                                @show original_cell
+                                @show lhs_cell rhs_cell
+                                @show (lhs_cell in keys(forwards))
+                                @show (rhs_cell in keys(forwards))
+                            end
+                        end
+
+                        if (lhs_cell in keys(forwards)) && !(rhs_cell in keys(forwards))
+                            println("Found a range that wasn't both forwarded?")
+                            @show lhs rhs
+                            push!(handled, part.args[1].i)
+                            push!(handled, part.args[2].i)
+                        end
+                        if (rhs_cell in keys(forwards)) && !(lhs_cell in keys(forwards))
+                            println("Found a range that wasn't both forwarded?")
+                            @show lhs rhs
+                            push!(handled, part.args[1].i)
+                            push!(handled, part.args[2].i)
+                        end
+                    end
+                    _ => nothing
+                end
+            end
+            # push!(modified_cells, user_cell)
+
+            recalc_deps!(wb, user_cell)
+        end
+    end
+
+    # for cell in modified_cells
+    #     recalc_deps!(wb, cell)
+    # end
+end
+
+function read_wb()
+    # file = "scope=3.0_aspect=2.0_TEA.xlsm"
+    file = "Modular TEA - master - v1.25.xlsm"
+    wb = parse_workbook(file)
+
+    # println("\n", "="^10, "Formula Replacements", "="^10)
+    # These both seem like start one row too low
+    # apply_formula_override!(wb, CellDependency("Equip&Mat Calcs", "W33"), "SUM(W4:W32)")
+    # apply_formula_override!(wb, CellDependency("Equip&Mat Calcs", "W65"), "SUM(W36:W64)")
+    # Make this one column wider, because other things will references this
+    # range expecting it to be one longer than it is
+    # apply_formula_override!(wb, CellDependency("Site Inputs", "C51"), "TRANSPOSE(vessels!F4:Y4)")
+
+    
+    wb
+end
+
+function number_of_paths(graph, source, destination)
+    topo_sorted = topological_sort(graph)
+
+    dp = zeros(Int64, nv(graph))
+    dp[destination] = 1
+
+    for idx in reverse(eachindex(topo_sorted))
+        out = outneighbors(graph, topo_sorted[idx])
+        for n in out
+            dp[topo_sorted[idx]] += dp[n]
+        end
+    end
+
+    dp[source]
+end
+
+"""
+    find_cycle(g::SimpleDiGraph)
+
+Search for a directed cycle in `g`.
+
+Returns:
+- A vector of vertex indices representing a cycle (with the first vertex
+  repeated at the end), or
+- `nothing` if the graph is acyclic.
+"""
+function find_cycle(g::SimpleDiGraph)
+    n = nv(g)
+    visited = falses(n)
+    on_stack = falses(n)
+    parent = fill(0, n)
+
+    cycle = nothing
+
+    function dfs(u)
+        visited[u] = true
+        on_stack[u] = true
+
+        for v in outneighbors(g, u)
+            if cycle !== nothing
+                return
+            elseif !visited[v]
+                parent[v] = u
+                dfs(v)
+            elseif on_stack[v]
+                # Found a back edge u -> v, reconstruct cycle
+                path = [v]
+                cur = u
+                while cur != v
+                    push!(path, cur)
+                    cur = parent[cur]
+                end
+                push!(path, v)   # close the cycle
+                reverse!(path)
+                cycle = path
+                return
+            end
+        end
+
+        on_stack[u] = false
+    end
+
+    for v in 1:n
+        if !visited[v]
+            dfs(v)
+            if cycle !== nothing
+                return cycle
+            end
+        end
+    end
+
+    return nothing
+end
+
+function param_to_cell(wb::XLConvert.ExcelWorkbook2, param)
+    nothing
+end
+
+function param_to_cell(wb::XLConvert.ExcelWorkbook2, param::ExcelExpr)
+    @match param begin
+        ExcelExpr(:cell_ref, [cell, sheet]) => CellDependency(sheet, cell)
+        _ => nothing
+    end
+
+end
+
+function find_repeated_functions(wb_in::XLConvert.ExcelWorkbook2)
+
+
+    functions = XLConvert.ObjectNumbering(XLConvert.FlatExpr[])
+
+    func_usages = Dict{Int64, Vector{CellDependency}}()
+
+    cell_funcs = Dict{CellDependency, Tuple{Int64, Matrix{ExcelExpr}}}()
+
+    for (cell, value) in wb_in.cell_dict
+        value isa XLConvert.FormulaCell || continue
+        expr = XLConvert.get_expr(value)
+        expr isa XLConvert.FlatExpr || continue
+
+        (func, params) = XLConvert.functionalize(expr)
+
+        func_id = XLConvert.get_num!(functions, func)
+        cell_funcs[cell] = (func_id, params)
+
+        push!(get!(func_usages, func_id, CellDependency[]), cell)
+    end
+
+    func_ids = 1:length(functions)
+
+    interesting_func_ids = filter(id -> length(XLConvert.get_obj(functions, id).parts) > 5, func_ids)
+
+    funcs_by_usages = sort(interesting_func_ids, by = i -> length(func_usages[i]), rev = true)
+
+    function get_cell_func_id(cell)
+        isnothing(cell) && return nothing
+
+        get(cell_funcs, cell, (nothing, ExcelExpr[]))[1]
+    end
+    @display XLConvert.get_obj(functions, 1)
+
+    println("Top 5 most used functions:")
+    for id in funcs_by_usages[1:10]
+        usages = func_usages[id]
+        println("Func id = $id has $(length(usages)) usages")
+        @display XLConvert.get_obj(functions, id)
+        params = reduce(vcat, [cell_funcs[c][2] for c in usages])
+        param_cells = map(e -> param_to_cell(wb_in, e), params)
+        param_cell_func_ids = get_cell_func_id.(param_cells)
+        for col in 1:size(param_cell_func_ids, 2)
+            ids = @view param_cell_func_ids[:, col]
+            if !any(isnothing.(ids)) && allequal(ids)
+                println("Found a set of parameters that are all defined similarly")
+                @show col ids
+            end
+        end
+        # @show allequal.(eachcol(param_cell_func_ids))
+        # @display param_cells
+        # @display get_cell_func_id.(param_cells)
+
+        # for c in usages
+        #     println("\t$c - $(cell_funcs[c][2])")
+        # end
+
+
+    end
+end
+
+function rename_cell_ref!(expr::XLConvert.FlatExpr, child::CellDependency, root::CellDependency, wb)
+    expected_expr = ExcelExpr(:cell_ref, Any[child.cell, child.sheet_name])
+    did_replace = false
+    for (i, part) in enumerate(expr.parts)
+        if part_to_cell_dependency(wb, part) == child
+            expr.parts[i] = ExcelExpr(:cell_ref, root.cell, root.sheet_name)
+            did_replace = true
+        end
+        # if @ismatch part ExcelExpr(:cell_ref, [expr_cell, expr_sheet])
+        #     if CellDependency(expr_sheet, expr_cell) == child
+        #         # println("Found rename!")
+        #         expr.parts[i] = ExcelExpr(:cell_ref, root.cell, root.sheet_name)
+        #         did_replace = true
+        #     end
+        # end
+    end
+
+    if !did_replace
+        println("Couldn't find a replacement?")
+        @display expr
+    end
+
+    did_replace
+end
+
+function merge_cell!(wb::XLConvert.ExcelWorkbook2, child::CellDependency, root::CellDependency)
+
+    child_num = get_num(wb, child)
+    root_num = get_num(wb, root)
+    # @show child root
+    # @show child_num root_num
+    # @show inneighbors(wb.cell_graph, child_num)
+    edges_to_remove = Vector{Edge}()
+    edges_to_add = Vector{Edge}()
+    for child_dep in inneighbors(wb.cell_graph, child_num)
+
+        push!(edges_to_remove, Edge(child_dep, child_num))
+        push!(edges_to_add, Edge(child_dep, root_num))
+
+        # println("Removing ", Edge(child_dep, child_num))
+        # @assert rem_edge!(wb.cell_graph, Edge(child_dep, child_num))
+        # add_edge!(wb.cell_graph, Edge(child_dep, root_num))
+        cell = get_cell(wb, child_dep)
+
+        dict_value = wb.cell_dict[cell]
+
+        rename_cell_ref!(get_expr(dict_value), child, root, wb)
+    end
+
+    for edge in edges_to_remove
+        @assert rem_edge!(wb.cell_graph, edge)
+    end
+    for edge in edges_to_add
+        add_edge!(wb.cell_graph, edge)
+    end
+
+    # @show inneighbors(wb.cell_graph, child_num)
+    @assert length(inneighbors(wb.cell_graph, child_num)) == 0
+
+    # rem_vertex!(wb.cell_graph, child_num)
+    # XLConvert.rem_obj!(wb.cell_numbering, child_num)
+end
+
+function normalize_cell_refs(expr::XLConvert.FlatExpr)
+    new_expr = deepcopy(expr)
+    for part in new_expr.parts
+        if @ismatch part ExcelExpr(:cell_ref, [cell, sheet])
+            part.args[1] = replace(part.args[1], '$' => "")
+        end
+    end
+
+    new_expr
+end
+
+function part_to_cell_dependency(wb::XLConvert.ExcelWorkbook2, part)
+    if @ismatch part ExcelExpr(:cell_ref, [expr_cell, expr_sheet])
+        # println("Found equivalent variables!")
+        return CellDependency(expr_sheet, expr_cell)
+    elseif @ismatch part ExcelExpr(:named_range, [name])
+        sub_expr = wb.key_values[name]
+        if length(sub_expr.parts) == 1
+            return get_parent_cell(sub_expr)
+        elseif length(sub_expr.parts) == 2
+            if sub_expr.parts[1].head == :sheet_ref
+                if @ismatch sub_expr.parts[2] ExcelExpr(:cell_ref, [expr_cell, expr_sheet])
+                    return CellDependency(expr_sheet, expr_cell)
+                end
+            end
+        end
+    end
+
+    nothing
+end
+
+function equivalence_analysis(wb::XLConvert.ExcelWorkbook2)
+
+    equivalent_cells = Vector{Tuple{CellDependency, CellDependency}}()
+    cells_to_remove = Vector{CellDependency}()
+
+    function get_parent_cell(expr)
+        part_to_cell_dependency(wb, expr.parts[1])
+    end
+
+    unique_formulas = Dict{XLConvert.FlatExpr, CellDependency}()
+
+    for (cell, value) in wb.cell_dict
+        value isa XLConvert.FormulaCell || continue
+        expr = XLConvert.get_expr(value)
+        expr isa XLConvert.FlatExpr || continue
+
+        if length(expr.parts) == 1
+            parent_cell = get_parent_cell(expr)
+            if !isnothing(parent_cell)
+                # if @ismatch expr.parts[1] ExcelExpr(:cell_ref, [expr_cell, expr_sheet])
+                # println("Found equivalent variables!")
+                # parent_cell = CellDependency(expr_sheet, expr_cell)
+                row_dist = abs(XLConvert.rownum(cell) - XLConvert.rownum(parent_cell))
+                col_dist = abs(XLConvert.colnum(cell) - XLConvert.colnum(parent_cell))
+                if max(row_dist, col_dist) < 4
+                    # println("$cell = $parent_cell")
+                    push!(equivalent_cells, (cell, parent_cell))
+                end
+                # @show cell parent_cell
+                # @display expr
+            end
+        else
+            norm_expr = normalize_cell_refs(expr)
+            if norm_expr in keys(unique_formulas)
+                parent_cell = unique_formulas[norm_expr]
+                dist = abs.(XLConvert.get_coords(cell) .- XLConvert.get_coords(parent_cell))
+                if maximum(dist) < 4
+                    println("Found cells with equivalent formula $(cell) = $(parent_cell)")
+                    push!(equivalent_cells, (cell, parent_cell))
+                end
+            else
+                unique_formulas[norm_expr] = cell
+            end
+        end
+    end
+
+
+    println("\nFound $(length(equivalent_cells)) equivalent cells")
+    @display equivalent_cells
+    for (child, root) in equivalent_cells
+        push!(cells_to_remove, child)
+        merge_cell!(wb, child, root)
+    end
+
+    for i in 1:3
+        roots = unique!(map(v -> v[2], equivalent_cells))
+
+        empty!(equivalent_cells)
+
+        for root in roots
+            root_num = get_num(wb, root)
+            children = inneighbors(wb.cell_graph, root_num)
+            child_exprs = [normalize_cell_refs(get_expr(wb.cell_dict[get_cell(wb, child)])) for child in children]
+            unique_children = Dict{XLConvert.FlatExpr, Int64}()
+            for (i, child_expr) in enumerate(child_exprs)
+                if child_expr in keys(unique_children)
+                    push!(equivalent_cells, get_cell.(Ref(wb), (children[i], children[unique_children[child_expr]])))
+                else
+                    unique_children[child_expr] = i
+                end
+            end
+        end
+
+
+        println("\nOn round $(i + 1): found $(length(equivalent_cells)) equivalent cells")
+        @display equivalent_cells
+        for (child, root) in equivalent_cells
+            push!(cells_to_remove, child)
+            merge_cell!(wb, child, root)
+        end
+    end
+
+
+    # mask = ones(Bool, nv(wb.cell_graph))
+    # for cell in cells_to_remove
+    #     mask[get_num(wb, cell)] = false
+    # end
+    # (subgraph, vmap) = induced_subgraph(wb.cell_graph, findall(mask))
+
+    # cell_numbering = XLConvert.ObjectNumbering(wb.cell_numbering.objs[vmap])
+
+    # XLConvert.ExcelWorkbook(wb.xf, cell_numbering, wb.cell_dict, subgraph, wb.key_values)
+
+    wb
+end
+
+part_to_cell_dep(expr::XLConvert.FlatExpr, i::FlatIdx) = part_to_cell_dep(expr, i.i)
+function part_to_cell_dep(expr::XLConvert.FlatExpr, i::Int32)
+    part = expr.parts[i]
+    if @ismatch part ExcelExpr(:cell_ref, [cell, sheet])
+        return CellDependency(sheet, cell)
+    end
+
+    if @ismatch part ExcelExpr(:sheet_ref, [sheet, sub_i])
+        return part_to_cell_dep(expr, sub_i)
+    end
+
+
+    nothing
+end
+
+part_to_workbook_range(expr::XLConvert.FlatExpr, i::FlatIdx) = part_to_workbook_range(expr, i.i)
+function part_to_workbook_range(expr::XLConvert.FlatExpr, i::Int32)
+    part = expr.parts[i]
+
+    if @ismatch part ExcelExpr(:sheet_ref, [sheet, sub_i])
+        return part_to_workbook_range(expr, sub_i)
+    end
+
+    @match part begin
+        ExcelExpr(:range, [FlatIdx(lhs_i), FlatIdx(rhs_i)]) => begin
+            lhs_expr = expr.parts[lhs_i]
+            rhs_expr = expr.parts[rhs_i]
+            if !((lhs_expr.head == :cell_ref) && (rhs_expr.head == :cell_ref))
+                # throw("Don't know how to get dependencies because of a range expression without cell refs. i = $i. lhs_expr = $(lhs_expr.head), rhs_expr = $(rhs_expr.head)")
+                @show lhs_expr rhs_expr
+                return nothing
+            end
+            sheet = lhs_expr.args[2]
+            if (sheet != rhs_expr.args[2])
+                throw("Don't know how to get dependencies because of a range expression that doesn't share a cell. i = $i")
+            end
+
+            lhs = lhs_expr.args[1]
+            rhs = rhs_expr.args[1]
+
+            WorkbookRegion(CellDependency(sheet, lhs), CellDependency(sheet, rhs))
+        end
+        _ => nothing
+    end
+end
+
+xl_text_concat(a::AbstractString, b::AbstractString) = string(a, b)
+xl_text_concat(a::AbstractString, b::Missing) = string(a)
+xl_text_concat(a::Missing, b::AbstractString) = string(b)
+xl_text_concat(a::Missing, b::Missing) = ""
+
+
+function lookup_const_propagate!(wb::XLConvert.ExcelWorkbook2, expr_in::XLConvert.FlatExpr, const_regions::Vector{Any}; debug::Bool = false)
+    # deps = Vector{Union{WorkbookRegion, CellDependency}}()
+    expr = copy(expr_in)
+    function is_const(cell_ref)
+        for const_region in const_regions
+            if cell_ref in const_region
+                return true
+            end
+        end
+
+        false
+    end
+    handled = Set{Int}()
+
+    xf = wb.xf
+
+    function get_workbook_values(cell::CellDependency)
+        xf[cell.sheet_name][cell.cell]
+    end
+    function get_workbook_values(range::WorkbookRegion)
+        first = range.first
+        last = range.last
+
+        xf[first.sheet_name]["$(first.cell):$(last.cell)"]
+    end
+
+    function insert_default!(idx, value)
+        for i in 1:idx
+            part = expr.parts[i]
+            !(FlatIdx(idx) in part.args) && continue
+
+            expr.parts[i] = ExcelExpr(part.head, replace(part.args, FlatIdx(idx) => value))
+        end
+    end
+
+    """
+        get_const_value(value)
+
+        Given some value or FlatIdx, tries to get its value based on the constant parts of the sheet.
+        If it's not constant or can't be evaluated, the value is nothing
+    """
+    function get_const_value(value)
+        if debug
+            println("get_const_value, value of unknown type $(value)")
+        end
+        nothing
+    end
+    get_const_value(value::Real) = value
+    get_const_value(value::AbstractString) = value
+    function get_const_value(value::FlatIdx)
+        cell_dep = part_to_cell_dep(expr, value)
+        if !isnothing(cell_dep) && is_const(cell_dep)
+            return get_workbook_values(cell_dep)
+        elseif debug
+            # if isnothing(cell_dep)
+            #     println("get_const_value value was not a cell ref")
+            # else
+            #     println("get_const_value value was not constant")
+            # end
+        end
+
+        cell_range = part_to_workbook_range(expr, value)
+        if !isnothing(cell_range) && is_const(cell_range)
+            return get_workbook_values(cell_range)
+        elseif debug
+            if isnothing(cell_range)
+                println("get_const_value value was not a cell range")
+            else
+                println("get_const_value cell range was not constant")
+            end
+        end
+
+        part = expr.parts[value.i]
+        @match part begin
+            ExcelExpr(:&, [lhs, rhs]) => begin
+                debug && println("Found ampersand expr")
+                lhs_val = get_const_value(lhs)
+                if isnothing(lhs_val)
+                    debug && println("left hand is not a constant value")
+                    return nothing
+                end
+                rhs_val = get_const_value(rhs)
+                if isnothing(rhs_val)
+                    debug && println("right hand is not a constant value")
+                    return nothing
+                end
+
+                if lhs_val isa AbstractString && rhs_val isa AbstractString
+                    lhs_val * rhs_val
+                elseif lhs_val isa AbstractArray && rhs_val isa AbstractArray
+                    if length(lhs_val) != length(rhs_val)
+                        if debug
+                            println("get_const_value: Ampersand expr arrays had different lengths")
+                            @show lhs_val rhs_val
+                        end
+                        return nothing
+                    end
+
+                    map((a) -> xl_text_concat(a[1], a[2]), zip(lhs_val, rhs_val))
+                else
+                    if debug
+                        println("get_const_value: Ampersand expr had const values, but they weren't strings or arrays")
+                        @show lhs_val rhs_val
+                    end
+                    nothing
+                end
+            end
+            _ => nothing
+        end
+    end
+
+    for (i, part) in enumerate(expr.parts)
+        i in handled && continue
+
+        @match part begin
+            ExcelExpr(:call, ["_xlfn.XLOOKUP", args...]) => begin
+                if length(args) < 3
+                    println("Invalid xlookup")
+                    @show part
+                end
+                if !(args[1] isa FlatIdx)
+                    # @display expr
+                    continue
+                end
+
+                debug && println("Found xlookup")
+
+                value = args[1]
+                ref_range = args[2]
+                result_range = args[3].i
+
+                actual_value = get_const_value(value)
+                if isnothing(actual_value)
+                    if debug
+                        println("Value cell can't get const value")
+                        if value isa XLConvert.FlatIdx
+                            println("value cell: $(expr.parts[value.i])")
+                        else
+                            println("value : $(value)")
+                        end
+                    end
+                    continue
+                end
+                ref_values = get_const_value(ref_range)
+                if isnothing(ref_values)
+                    if debug
+                        println("Can't turn ref range into workbook range")
+                        if ref_range isa XLConvert.FlatIdx
+                            println("ref_range cell: $(expr.parts[ref_range.i])")
+                        else
+                            println("ref_range : $(ref_range)")
+                        end
+                    end
+                    continue
+                end
+
+                result_workbook_range = part_to_workbook_range(expr, result_range)
+                if isnothing(result_workbook_range)
+                    if debug
+                        println("Can't const propagate because the result isn't a workbook range")
+                        @show expr.parts[result_range]
+                    end
+                    continue
+                end
+                # @show result_workbook_range
+
+                # actual_value = get_workbook_values(value_cell)
+                # ref_values = get_workbook_values(ref_workbook_range)
+                ref_size = size(ref_values)
+                # @show ref_size
+                if ref_size[1] != 1 && ref_size[2] != 1
+                    if debug
+                        println("The ref range isn't 1 dimensional")
+                        @show ref_values
+                        println("")
+                    end
+                    continue
+                end
+                # @show actual_value ref_values
+                if ismissing(actual_value)
+                    if length(args) >= 4
+                        debug && println("Lookup value is missing, but default value is available")
+                        insert_default!(i, args[4])
+                        continue
+                    else
+                        # This is a weird hack to handle when we are looking for a missing value
+                        debug && println("Lookup value is missing, no default available")
+                        # insert_default!(i, nothing)
+                        value_cell = part_to_cell_dep(expr, value)
+                        expr.parts[i] = ExcelExpr(:cell_ref, Any[value_cell.cell, value_cell.sheet_name])
+                        continue
+                    end
+                end
+
+                result_index = findfirst(==(actual_value), vec(ref_values))
+                # @show result_index
+                if isnothing(result_index) && length(args) >= 4
+                    println("Couldn't find the lookup, but default value is available")
+                    continue
+                elseif isnothing(result_index)
+                    debug && println("Couldn't find the lookup, but no default value is available")
+                    # @show value ref_range result_range
+                    # @show ExcelExpr(:cell_ref, Any[value_cell.cell, value_cell.sheet_name])
+                    value_cell = part_to_cell_dep(expr, value)
+                    @show value_cell
+                    @show expr.parts[value.i]
+                    expr.parts[i] = ExcelExpr(:cell_ref, Any[value_cell.cell, value_cell.sheet_name])
+                    continue
+                end
+
+                result_index -= 1
+                if debug
+                    @show size(ref_values)
+                    @show result_workbook_range
+                end
+
+                result_size = size(result_workbook_range)
+                if result_size[1] != 1 && result_size[2] != 1
+                    # println("The result range isn't 1 dimensional")
+                    # @show result_workbook_range
+                    # println("")
+                    if size(ref_values)[1] == 1
+                        offset_rows = 0
+                        offset_cols = result_index
+                    else
+                        offset_rows = result_index
+                        offset_cols = 0
+                    end
+
+                    # Just steal some of the existing references to overwrite
+                    expr.parts[i] = ExcelExpr(:range, Any[FlatIdx(value.i), FlatIdx(ref_range.i)])
+                    new_first = XLConvert.offset(result_workbook_range.first, offset_rows, offset_cols)
+                    # new_last = XLConvert.offset(result_workbook_range.last, offset_rows, offset_cols)
+                    # new_last = XLConvert.offset(new_first, 0, result_size[2] - 1)
+                    if size(ref_values)[1] == 1
+                        new_last = XLConvert.offset(new_first, result_size[1] - 1, 0)
+                    else
+                        new_last = XLConvert.offset(new_first, 0, result_size[2] - 1)
+                    end
+                    if debug
+                        println("Making range from $(new_first) to $(new_last)")
+                    end
+
+                    @assert new_first in result_workbook_range
+                    @assert new_last in result_workbook_range
+
+                    expr.parts[value.i] = ExcelExpr(:cell_ref, Any[new_first.cell, new_first.sheet_name])
+                    expr.parts[ref_range.i] = ExcelExpr(:cell_ref, Any[new_last.cell, new_last.sheet_name])
+                else
+                    offset_rows = result_index
+                    offset_cols = 0
+                    if result_size[1] == 1
+                        (offset_cols, offset_rows) = (offset_rows, offset_cols)
+                    end
+
+                    const_ref_cell = XLConvert.offset(result_workbook_range.first, offset_rows, offset_cols)
+                    debug && println("New cell ref = $(const_ref_cell)")
+                    if !(const_ref_cell in result_workbook_range)
+                        @show result_workbook_range result_index offset_rows offset_cols
+                        @show const_ref_cell
+                        @display expr
+                        @assert const_ref_cell in result_workbook_range
+                    end
+
+                    # fixed_row = false
+                    # fixed_col = false
+                    # if value isa XLConvert.FlatIdx
+                    #     part = expr.parts[value.i]
+                    #     if part.head == :cell_ref
+                    #         part_cell = part.args[1]
+                    #         fixed_row = XLConvert.cell_fixed_row(part_cell)
+                    #         fixed_col = XLConvert.cell_fixed_col(part_cell)
+                    #     end
+                    # end
+
+                    # cell_str = (fixed_col ? '$' : "") * XLSX.encode_column_number(colnum(const_ref_cell)) * (fixed_row ? '$' : "") * string(rownum(const_ref_cell))
+                    cell_str = const_ref_cell.cell
+
+                    expr.parts[i] = ExcelExpr(:cell_ref, Any[cell_str, const_ref_cell.sheet_name])
+                end
+            end
+            _ => continue
+        end
+    end
+
+    # This is a quick and dirty way to prune out now unused values
+    # @display XLConvert.convert_to_expr(expr)
+    expr = XLConvert.convert_to_flat_expr(XLConvert.convert_to_expr(expr))
+end
+
+function test_lookup_const_propagate(wb::XLConvert.ExcelWorkbook2)
+    const_regions = Any[
+        WorkbookRegion("Structure Calcs", "CM6", "CM47"),
+        WorkbookRegion("Structure Calcs", "CM51", "CM92"),
+        WorkbookRegion("Structure Calcs", "CM100", "CM141"),
+        WorkbookRegion("Structure Calcs", "CM149", "CM190"),
+        WorkbookRegion("Structure Calcs", "CM197", "CM238"),
+        WorkbookRegion("Structure Calcs", "CN4", "FR4"),
+        WorkbookRegion("Structure Calcs", "C6", "C47"),
+        WorkbookRegion("Structure Calcs", "P4", "Y4"),
+        WorkbookRegion("Structure Assumptions", "E3", "E66"),
+        WorkbookRegion("Structure Assumptions", "AC2", "AZ2"),
+        WorkbookRegion("Structure Assumptions", "Z3", "Z66"),
+        WorkbookRegion("Structure Assumptions", "AA3", "AA66"),
+        WorkbookRegion("Structure Assumptions", "AB3", "AB66"),
+        WorkbookRegion("Anchor Sizing", "L2", "N2"),
+        WorkbookRegion("Structure Calcs", "B6", "B47"),
+        WorkbookRegion("Operations", "D3", "Q3"),
+        WorkbookRegion("Operations", "B45", "B48"),
+        # WorkbookRegion("Operations", "C119", "C119"),
+        # WorkbookRegion("Operations", "C138", "C138"),
+        WorkbookRegion("Equip&Mat Assumptions", "E4", "E47"),
+        WorkbookRegion("Equip&Mat Assumptions", "N51", "N59"),
+        # WorkbookRegion("Equip&Mat Assumptions", "C48", "C66"),
+        WorkbookRegion("Equip&Mat Assumptions", "C51", "C69"),
+        WorkbookRegion("Equip&Mat Calcs", "W2", "BN2"),
+        WorkbookRegion("Equip&Mat Calcs", "D30", "G30"),
+        WorkbookRegion("Equip&Mat Calcs", "B31", "B42"),
+        WorkbookRegion("Equip&Mat Calcs", "C4", "C34"),
+        WorkbookRegion("Equip&Mat Calcs", "D119", "G119"),
+        WorkbookRegion("vessels", "F5", "V5"),
+        WorkbookRegion("vessels", "F14", "V14"),
+    ]
+
+    # test_cell = CellDependency("Structure Calcs", "EO85")
+    # test_cell = CellDependency("Structure Calcs", "DJ74")
+    # test_cell = CellDependency("Operations", "F136")
+    # test_cell = CellDependency("Structure Calcs", "ED79")
+    test_cell = CellDependency("Operations", "I46")
+
+    # expr = get_expr(wb.cell_dict[test_cell])
+    # println("Before")
+    # @display expr
+
+    # for i in 1:3
+    #     expr = lookup_const_propagate!(wb, expr, const_regions; debug=true)
+    #     println("After $i")
+    #     @display expr
+    # end
+
+    # return
+
+    cell_dict = Dict{CellDependency, XLConvert.CellTypes}()
+
+    for (cell, value) in wb.cell_dict
+        # if !(cell.sheet_name in ["Structure Calcs", "Equip&Mat Calcs", "Anchor Sizing", "Equip&Mat Assumptions", "Operations"])
+        #     cell_dict[cell] = value
+        #     continue
+        # end
+        # if !(cell.sheet_name in ["Operations"])
+        #     cell_dict[cell] = value
+        #     continue
+        # end
+
+        if !(value isa XLConvert.FormulaCell)
+            cell_dict[cell] = value
+            continue
+        end
+
+        expr = get_expr(value)
+        if !(expr isa XLConvert.FlatExpr)
+            cell_dict[cell] = value
+            continue
+        end
+
+        num_parts = length(expr.parts)
+
+        for i in 1:4
+            expr = lookup_const_propagate!(wb, expr, const_regions)
+        end
+
+        expr = fix_indirect!(wb, expr)
+
+        removed_parts = num_parts - length(expr.parts)
+        if cell == test_cell
+            println("For cell $cell removed $(removed_parts) parts from the expr")
+        end
+        # if removed_parts > 0
+        #     println("For cell $cell removed $(removed_parts) parts from the expr")
+        # end
+
+        cell_dict[cell] = XLConvert.FormulaCell(value.cell, expr)
+
+    end
+
+    cell_list = collect(keys(cell_dict))
+    cell_numbering = XLConvert.ObjectNumbering(cell_list)
+
+    edge_list = Vector{Edge{Int64}}()
+    # A relatively random (and hopefully conservative) guess that the average degree is 2
+    sizehint!(edge_list, 2 * length(cell_numbering))
+
+    @time "getting expr dependencies" for (i, cell) in enumerate(cell_numbering.objs)
+        content = get(cell_dict, cell, MissingCell())
+        if content isa XLConvert.FormulaCell
+            # empty!(handled_deps)
+            dep_cells = []
+            try
+                dep_cells = XLConvert.get_expr_dependency_ranges(content.expr, wb.key_values)
+            catch e
+                println("Error getting cell dependencies for cell $cell")
+                # @show cell
+                # @show content
+                @show content.cell.formula
+                # println("Expr:")
+                # show(stdout, "text/plain", content.expr)
+                @show e
+                # throw(e)
+                continue
+            end
+
+            unique!(dep_cells)
+
+            for dep in dep_cells
+                if dep isa CellDependency
+                    num = XLConvert.get_num!(cell_numbering, dep)
+                    push!(edge_list, Edge(i, num))
+                else
+                    sheet = dep.first.sheet_name
+                    (start_col, start_row) = XLConvert.start_coord(dep)
+                    (end_col, end_row) = XLConvert.end_coord(dep)
+                    for r ∈ start_row:end_row, c ∈ start_col:end_col
+                        num = XLConvert.get_num!(cell_numbering, CellDependency(sheet, c, r))
+                        push!(edge_list, Edge(i, num))
+                    end
+                end
+            end
+        end
+
+    end
+
+    @time "graph construction" graph = Graphs.SimpleDiGraph(edge_list)
+
+    XLConvert.ExcelWorkbook(wb.xf, cell_numbering, cell_dict, graph, wb.key_values)
+end
+
+function table_statements_have_same_equation(a::XLConvert.TableStatement, func_a, params_a, b::XLConvert.TableStatement, func_b, params_b)
+    if ismissing(a.rhs_expr) || ismissing(b.rhs_expr)
+        return a.rhs_expr === b.rhs_expr
+    end
+    if ismissing(func_a) || ismissing(func_b)
+        return func_a === func_b
+    end
+
+    # @show func_a func_b
+
+    # func_a, params_a = XLConvert.functionalize(a.rhs_expr)
+    # func_b, params_b = XLConvert.functionalize(b.rhs_expr)
+    are_equal = func_a == func_b
+    if ismissing(are_equal)
+        # @show func_a func_b
+        return false
+    end
+
+    if func_a != func_b
+        return false
+    end
+
+    if length(params_a) != length(params_b)
+        return false
+    end
+
+    row_a, col_a = @view a.lhs_expr.args[2:3]
+    row_b, col_b = @view b.lhs_expr.args[2:3]
+
+    delta_y = row_a - row_b
+    delta_x = col_a - col_b
+
+    for (pa, pb) in zip(params_a, params_b)
+        if pa == pb
+            continue
+        end
+
+        if !XLConvert.equal_with_offset(pa, pb, delta_y, delta_x)
+            if !!XLConvert.equal_with_offset(pa, pb, delta_x, delta_y)
+                return false
+            end
+        end
+    end
+
+    return true
+
+
+    # base_expr = a.rhs_expr
+    # return equal_with_offset(base_expr, b.rhs_expr, delta_y, delta_x)
+    # offset_expr = offset(b.rhs_expr, delta_y, delta_x)
+
+    # base_expr === offset_expr
+end
+
+function flexible_table_broadcast_transform_2d!(statements::Vector{AbstractStatement})
+    stmt_graph = make_statement_graph(statements)
+    # @time closure = transitiveclosure(stmt_graph)
+    topo_sorted = topological_sort(reverse(stmt_graph))
+    stmt_topo_levels = get_topo_levels_top_down(stmt_graph)
+    # stmt_to_level = Dict((stmt => stmt_topo_levels[i]) for (i, stmt) in enumerate(statements))
+    # table_statements::Vector{TableStatement} = filter(s -> isa(s, TableStatement), statements)
+    table_statement_idxs::Vector{Int64} = filter(i -> (isa(statements[i], XLConvert.TableStatement) && length(XLConvert.get_set_cells(statements[i])) == 1), eachindex(statements))
+    # @show table_statement_idxs statements[table_statement_idxs]
+    # node_nums = used_subset.node_nums
+
+
+    function get_stmt_table(stmt::XLConvert.TableStatement)
+        stmt.lhs_expr.args[1]
+    end
+
+    function num_parts(::Any)
+        1
+    end
+    function num_parts(e::XLConvert.FlatExpr)
+        length(e.parts)
+    end
+
+    function get_stmt_num_expr_parts(stmt::XLConvert.TableStatement)
+        num_parts(stmt.rhs_expr)
+    end
+
+    path_seen = zeros(Bool, nv(stmt_graph))
+    function is_independent(node_a::Int64, node_b::Int64)
+        lvl_a = stmt_topo_levels[node_a]
+        lvl_b = stmt_topo_levels[node_b]
+        if lvl_a == lvl_b
+            return true
+        end
+        return false
+
+        # has_path = if lvl_b > lvl_a
+        #     has_path_within(stmt_graph, node_b, node_a, lvl_b - lvl_a, path_seen)
+        # else
+        #     has_path_within(stmt_graph, node_a, node_b, lvl_a - lvl_b, path_seen)
+        # end
+
+        # if has_path
+        #     println("Nodes have the same equation but are not independent")
+        #     println(statements[node_a])
+        #     println(statements[node_b])
+
+        # end
+
+        # !has_path
+    end
+
+    # get_num_parts = i -> length(statements[i].rhs_expr.parts)
+    get_num_parts = i -> get_stmt_num_expr_parts(statements[i])
+
+    # inner_group_by_func = (i, j) -> (get_num_parts(i) == get_num_parts(j)) && table_statements_have_same_equation(statements[i], statements[j]) && is_independent(i, j)
+    # inner_group_by_func = (i, j) -> table_statements_have_same_equation(statements[i], statements[j]) && is_independent(i, j)
+
+    # same_table_and_level = group_to_dict(table_statement_idxs, i -> (get_stmt_table(statements[i]), stmt_topo_levels[i]))
+    same_table_and_level = XLConvert.group_to_dict(table_statement_idxs, i -> get_stmt_table(statements[i]))
+    @show length(same_table_and_level)
+    groups = Vector{Vector{Int64}}()
+    @time "grouping" for group in values(same_table_and_level)
+        # @show length(group)
+        # @show group
+        # @time closure = transitiveclosure(stmt_graph)
+        same_num_parts = XLConvert.group_to_dict(group, get_num_parts)
+        # @show same_num_parts
+        # @show length(same_num_parts)
+        for sub_group in values(same_num_parts)
+            # functionalized = XLConvert.funtcionalize.(sub_group)
+            # @show length(sub_group)
+            # functionalized = (i -> XLConvert.functionalize(statements[i])).(sub_group)
+            functionalized = Dict(i => XLConvert.functionalize(statements[i].rhs_expr) for i in sub_group)
+            same_equations = XLConvert.group_by(sub_group, (i, j) -> is_independent(i, j) && table_statements_have_same_equation(statements[i], functionalized[i][1], functionalized[i][2], statements[j], functionalized[j][1], functionalized[j][2]))
+            # @show same_equations
+            append!(groups, same_equations)
+        end
+        # same_equations = group_by(group, (i, j) -> table_statements_have_same_equation(statements[i], statements[j]) && not_interdependent(closure, i, j))
+        # same_equations = group_by(group, inner_group_by_func)
+        # append!(groups, same_equations)
+    end
+    # @show groups
+
+    new_statements = copy(statements)
+
+    grouped_by_level = groups
+
+    num_table_stmts = 0
+
+    for group in grouped_by_level
+        if length(group) <= 1
+            continue
+        end
+        table = statements[group[1]].lhs_expr.args[1]
+        sheet = table.sheet_name
+
+        # get_row_num = s -> rownum(s.assigned_vars[1])
+        # get_col_num = s -> colnum(s.assigned_vars[1])
+        get_row_num = i -> rownum(statements[i].assigned_vars[1])
+        get_col_num = i -> colnum(statements[i].assigned_vars[1])
+
+        row_nums = get_row_num.(group)
+        col_nums = get_col_num.(group)
+        coords = zip(col_nums, row_nums) |> collect
+        coord_to_statement = Dict(c => s for (c, s) in zip(coords, group))
+
+        sort!(coords)
+        regions = XLConvert.get_2d_regions(coords)
+        # println("Group size = $(length(group))")
+        for region in regions
+            cols, rows = region
+            region_area = (length(cols) * length(rows))
+            if region_area < 5
+                continue
+            end
+            # if length(cols) > 1
+            #     println("\t$region")
+            #     println("\tSize: $(region_area)")
+            # end
+            # println("\t$region")
+            # println("\tSize: $(region_area)")
+
+
+            # # region_coords = vec([(c, r) for c in cols, r in rows])
+            # # run_statements = [coord_to_statement[coord] for coord in region_coords]
+            # # region_coords = vec([(c, r) for c in cols, r in rows])
+            run_statements = vec([coord_to_statement[(c, r)] for c in cols, r in rows])
+
+            # first_expr = statements[run_statements[1]].rhs_expr
+
+            # broadcasted = try
+            #     convert_to_broadcasted(first_expr, length(rows) - 1, length(cols) - 1)
+            # catch ex
+            #     println("Failed to broadcast, would have broadcasted a run of $(region_area)")
+            #     @show ex
+            #     @show sheet rows cols
+            #     show(stdout, "text/plain", first_expr)
+
+            #     statement_group = statements[run_statements]
+            #     statement_set = Set(statement_group)
+            #     length_before = length(new_statements)
+            #     # filter!(s -> !(s in statement_group), new_statements)
+            #     filter!(!in(statement_set), new_statements)
+            #     length_after = length(new_statements)
+            #     println("Remove $(length_before - length_after) statements to put them in a group")
+            #     push!(new_statements, GroupedStatement(statement_group))
+            #     continue
+            # end
+
+            length_before = length(new_statements)
+            statement_group = statements[run_statements]
+            statement_set = Set(statement_group)
+            filter!(!in(statement_set), new_statements)
+            # # filter!(s -> !(s in statements[run_statements]), new_statements)
+            length_after = length(new_statements)
+            # println("Remove $(length_before - length_after) statements")
+            push!(new_statements, XLConvert.GroupedStatement(sort(statement_group, by = s -> XLConvert.get_set_cells(s)[1])))
+
+
+            # # lhs_expr = ExcelExpr(:table_ref, table, (run_idx[begin]:run_idx[end]) .- startrow(table) .+ 1, run_statements[1].lhs_expr.args[3], (true, true), (true, true))
+            # table_rows = rows .- startrow(table) .+ 1
+            # table_cols = cols .- startcol(table) .+ 1
+            # # @show table
+            # # @show table_rows, table_cols
+            # lhs_expr = ExcelExpr(:table_ref, table, table_rows, table_cols, (true, true), (true, true))
+            # # println("Broadcasting $(region_area) statements together. $(lhs_expr)")
+            # # @show statement_group
+            # # @show table_statements_have_same_equation(statement_group[1], statement_group[2])
+            # # @show group statements[group]
+            # # @show inner_group_by_func(group[1], group[2])
+            # # @assert table_statements_have_same_equation(statement_group[1], statement_group[2])
+
+
+            # # lhs_vars = reduce(vcat, get_set_cells.(statements[run_statements]))
+            # lhs_vars = reduce(vcat, get_set_cells.(statement_group))
+            # # @show lhs_vars
+            # # new_statement = TableStatement(lhs_expr, lhs_vars, broadcasted, reduce(vcat, get_cell_deps.(statements[run_statements])) |> unique |> collect, true)
+            # new_statement = TableStatement(lhs_expr, lhs_vars, broadcasted, reduce(vcat, get_cell_deps.(statement_group)) |> unique |> collect, true)
+
+            # push!(new_statements, new_statement)
+            num_table_stmts += 1
+
+        end
+    end
+
+    length_before = length(statements)
+    length_after = length(new_statements)
+    println("flexible_table_broadcast_transform_2d!: Removed $(length_before - length_after) statements")
+    println("flexible_table_broadcast_transform_2d!: Created $num_table_stmts group statements")
+
+    new_statements
+end
+
+
+function StandardTable(xf, sheet, name, top_left, bottom_right, column_name_row, row_name_col)
+    top_left_cell = CellDependency(sheet, top_left)
+    bottom_right_cell = CellDependency(sheet, bottom_right)
+
+    column_start = CellDependency(sheet, colnum(top_left_cell), column_name_row)
+    column_end = CellDependency(sheet, colnum(bottom_right_cell), column_name_row)
+
+    row_col_num = XLSX.decode_column_number(row_name_col)
+
+    row_start = CellDependency(sheet, row_col_num, rownum(top_left_cell))
+    row_end = CellDependency(sheet, row_col_num, rownum(bottom_right_cell))
+
+    DefTable(xf, sheet, name, top_left, bottom_right, "$(column_start.cell):$(column_end.cell)", "$(row_start.cell):$(row_end.cell)")
+end
+function StandardTable(xf, sheet, name, top_left, bottom_right, column_name_row)
+    top_left_cell = CellDependency(sheet, top_left)
+    bottom_right_cell = CellDependency(sheet, bottom_right)
+
+    column_start = CellDependency(sheet, colnum(top_left_cell), column_name_row)
+    column_end = CellDependency(sheet, colnum(bottom_right_cell), column_name_row)
+
+    DefTable(xf, sheet, name, top_left, bottom_right, "$(column_start.cell):$(column_end.cell)", "")
+end
+
+function fix_indirect!(wb::XLConvert.ExcelWorkbook2, expr_in::XLConvert.FlatExpr; debug::Bool = false)
+    expr = copy(expr_in)
+    region_a = WorkbookRegion("Structure Assumptions", "I77", "I100")
+    switch_names_ = ["none", "transverse_line_quant", "mid_mooring_floats_per_mooring_leg", "GL_sets", "seg_per_trans_line", "GL_per_set"]
+    switch_args_a = Any[]
+    for n in switch_names_
+        push!(switch_args_a, n)
+        push!(switch_args_a, ExcelExpr(:named_range, n))
+    end
+
+    region_b = WorkbookRegion("Structure Assumptions", "K77", "K100")
+    switch_names_ = ["none", "transverse_line_quant", "load_anchor_line", "load_cult_line", "load_transverse_line", "GL_per_set"]
+    switch_args_b = Any[]
+    for n in switch_names_
+        push!(switch_args_b, n)
+        push!(switch_args_b, ExcelExpr(:named_range, n))
+    end
+
+    region_c = WorkbookRegion("Structure Assumptions", "F77", "F100")
+    switch_names_ = ["mooring_assemb_onshore_tog", "at_base", "HDPE_pipe_deploy", "on_farm"]
+    switch_args_c = Any[]
+    for n in switch_names_
+        push!(switch_args_c, n)
+        push!(switch_args_c, ExcelExpr(:named_range, n))
+    end
+
+    region_args = [(region_a, switch_args_a), (region_b, switch_args_b), (region_c, switch_args_c)]
+
+    did_work = false
+    for (i, part) in enumerate(expr.parts)
+        @flat_match expr part begin
+            ExcelExpr(:call, ["INDIRECT", ExcelExpr(:cell_ref, [cell, sheet])]) => begin
+                c = CellDependency(sheet, cell)
+                for (region, switch_args) in region_args
+                    if c in region
+                        expr.parts[i] = ExcelExpr(:call, Any["SWITCH", part.args[2], switch_args...])
+                        did_work = true
+                        break
+                    end
+                end
+                # if CellDependency(sheet, cell) in region_a
+                #     expr.parts[i] = ExcelExpr(:call, Any["SWITCH", part.args[2], switch_args_a...])
+                #     did_work = true
+                # end
+            end
+            ExcelExpr(:call, ["INDIRECT", ExcelExpr(:call, ["_xlfn.XLOOKUP", val, ref, ExcelExpr(:range, [ExcelExpr(:cell_ref, [start, sheet]), ExcelExpr(:cell_ref, [stop, sheet])])])]) => begin
+                r = WorkbookRegion(sheet, start, stop)
+                for (region, switch_args) in region_args
+                    if r in region
+                        expr.parts[i] = ExcelExpr(:call, Any["SWITCH", part.args[2], switch_args...])
+                        did_work = true
+                        break
+                    end
+                end
+                # if WorkbookRegion(sheet, start, stop) in region_a
+                #     # @display expr_in
+                #     # XLConvert.toexpr("IF($cell = \"none\", none, IF($cell = ))")
+                #     expr.parts[i] = ExcelExpr(:call, Any["SWITCH", part.args[2], switch_args_a...])
+                #     did_work = true
+                # end
+            end
+            ExcelExpr(:call, ["INDIRECT", rest...]) => begin
+                # println("Found XLOOKUP that wasn't handled")
+
+            end
+            _ => continue
+        end
+
+    end
+
+    if did_work
+        expr = XLConvert.convert_to_flat_expr(XLConvert.convert_to_expr(expr))
+        # @display expr
+    end
+
+    expr
+end
+
+function indirect_fixes(wb::XLConvert.ExcelWorkbook2)
+
+    cell_dict = Dict{CellDependency, XLConvert.CellTypes}()
+
+    for (cell, value) in wb.cell_dict
+        # if !(cell.sheet_name in ["Structure Calcs", "Equip&Mat Calcs", "Anchor Sizing", "Equip&Mat Assumptions", "Operations"])
+        #     cell_dict[cell] = value
+        #     continue
+        # end
+
+        if !(value isa XLConvert.FormulaCell)
+            cell_dict[cell] = value
+            continue
+        end
+
+        expr = get_expr(value)
+        if !(expr isa XLConvert.FlatExpr)
+            cell_dict[cell] = value
+            continue
+        end
+
+        num_parts = length(expr.parts)
+        # @show cell
+
+
+        expr = fix_indirect!(wb, expr)
+        # removed_parts = num_parts - length(expr.parts)
+        # if removed_parts > 0
+        #     println("For cell $cell removed $(removed_parts) parts from the expr")
+        # end
+
+        cell_dict[cell] = XLConvert.FormulaCell(value.cell, expr)
+
+    end
+
+    cell_list = collect(keys(cell_dict))
+    cell_numbering = XLConvert.ObjectNumbering(cell_list)
+
+    edge_list = Vector{Edge{Int64}}()
+    # A relatively random (and hopefully conservative) guess that the average degree is 2
+    sizehint!(edge_list, 2 * length(cell_numbering))
+
+    @time "getting expr dependencies" for (i, cell) in enumerate(cell_numbering.objs)
+        content = get(cell_dict, cell, MissingCell())
+        if content isa XLConvert.FormulaCell
+            # empty!(handled_deps)
+            dep_cells = []
+            try
+                dep_cells = XLConvert.get_expr_dependency_ranges(content.expr, wb.key_values)
+            catch e
+                println("Error getting cell dependencies for cell $cell")
+                # @show cell
+                # @show content
+                @show content.cell.formula
+                # println("Expr:")
+                # show(stdout, "text/plain", content.expr)
+                @show e
+                # throw(e)
+                continue
+            end
+
+            unique!(dep_cells)
+
+            for dep in dep_cells
+                if dep isa CellDependency
+                    num = XLConvert.get_num!(cell_numbering, dep)
+                    push!(edge_list, Edge(i, num))
+                else
+                    sheet = dep.first.sheet_name
+                    (start_col, start_row) = XLConvert.start_coord(dep)
+                    (end_col, end_row) = XLConvert.end_coord(dep)
+                    for r ∈ start_row:end_row, c ∈ start_col:end_col
+                        num = XLConvert.get_num!(cell_numbering, CellDependency(sheet, c, r))
+                        push!(edge_list, Edge(i, num))
+                    end
+                end
+            end
+        end
+
+    end
+
+    @time "graph construction" graph = Graphs.SimpleDiGraph(edge_list)
+
+    XLConvert.ExcelWorkbook(wb.xf, cell_numbering, cell_dict, graph, wb.key_values)
+
+end
+
+function get_subset(wb_in::XLConvert.ExcelWorkbook2)
+    wb = wb_in
+
+    target_output = CellDependency("Results", "C6")
+
+    # Structural total annual cost
+    # target_output = CellDependency("Structure Calcs", "BV48")
+    # Structural total cost
+    # target_output = CellDependency("Structure Calcs", "BO48")
+    # target_output = CellDependency("Equip&Mat Calcs", "W65")
+    # target_output = CellDependency("Operations", "R313")
+
+    # target_output = CellDependency("vessels", "AA30")
+    # all_target_outputs = [target_output, CellDependency("Structure Calcs", "CS6")]
+    all_target_outputs = [target_output]
+    @show all_target_outputs
+    # inputs = [CellDependency("vessels", "AA13"), CellDependency("vessels", "AA16"), CellDependency("vessels", "AA17"), CellDependency("vessels", "AA18")]
+    @show nv(wb.cell_graph) ne(wb.cell_graph)
+
+    test_cell = CellDependency("Operations", "I46")
+
+    wb = test_lookup_const_propagate(wb)
+    @show nv(wb.cell_graph) ne(wb.cell_graph)
+
+
+    # dep_forwards = get_transpose_dep_forwards(wb)
+    # apply_dep_forwards!(wb, dep_forwards)
+
+
+    inputs = Vector{CellDependency}()
+    append!(inputs, XLConvert.cells(WorkbookRegion("aggregated oyster growth", "F11", "G157")))
+    append!(inputs, XLConvert.cells(WorkbookRegion("aggregated oyster growth", "J11", "K157")))
+    append!(inputs, XLConvert.cells(WorkbookRegion("Structure Calcs", "FG5", "FH262")))
+
+    @time used_subset = XLConvert.get_workbook_subset(wb, all_target_outputs)
+
+    @time used_subset = XLConvert.force_cells_to_be_value(used_subset, inputs)
+
+    if check_cycles(used_subset)
+        throw("Subset has cycles!")
+    end
+
+
+    @show nv(used_subset.cell_graph) ne(used_subset.cell_graph)
+
+    used_subset
+end
+
+function check_cycles(used_subset::XLConvert.ExcelWorkbook2)
+    cycle = find_cycle(used_subset.cell_graph)
+    if !isnothing(cycle)
+        println("Found a cycle!")
+        for (i, node) in enumerate(cycle)
+            cell = XLConvert.get_cell(used_subset, node)
+            # println("\t$i: $cell, $(get_cell_value(used_subset, cell))")
+            println("\t$i: $cell")
+            @display get_expr(used_subset.cell_dict[cell])
+        end
+        true
+    else
+        println("Didn't find any cycles")
+        false
+    end
+end
+
+function make_tables(used_subset::XLConvert.ExcelWorkbook2)
+    xf = used_subset.xf
+    tables = [
+        # DefTable(xf, "vessels", "vsl_dsn", "AA43", "AC322", "AA6:AC6", "Y43:Y322")
+        DefTable(xf, "vessels", "vsl_choices", "F14", "X43", "F4:X4", "B14:B43"),
+        StandardTable(xf, "vessels", "type_info", "F5", "X9", 4, "B"),
+        StandardTable(xf, "vessels", "from_library", "F103", "X122", 6, "B"),
+        StandardTable(xf, "vessels", "intermediate_res", "F136", "X142", 6, "B"),
+        StandardTable(xf, "vessels", "recorded_results", "F61", "X99", 4, "B"),
+        # DefTable(xf, "Vessel_Library", "vsl_library", "D6", "P38", "D3:P3", "B6:B38"),
+        DefTable(xf, "Structure Calcs", "tasks", "CN4", "FH4", "CN4:FH4", ""),
+        DefTable(xf, "Structure Calcs", "component_calc", "B6", "CG47", "B4:CG4", "B6:B47"),
+        DefTable(xf, "Structure Calcs", "component_vessel_task_times", "CN6", "FH47", "CN4:FH4", "CM6:CM47"),
+        DefTable(xf, "Structure Calcs", "component_deck_hand_time", "CN51", "FH92", "CN4:FH4", "CM51:CM92"),
+        DefTable(xf, "Structure Calcs", "component_task_quantity", "CN100", "FH141", "CN4:FH4", "CM100:CM141"),
+        DefTable(xf, "Structure Calcs", "component_task_annual_vsl_time", "CN149", "FH190", "CN4:FH4", "CM149:CM190"),
+        DefTable(xf, "Structure Calcs", "component_task_annual_deck_hand_time", "CN197", "FH238", "CN4:FH4", "CM197:CM238"),
+        DefTable(xf, "Structure Calcs", "monthly_machine_use", "CN251", "FH262", "CN4:FH4", "CM251:CM262"),
+        StandardTable(xf, "Structure Calcs", "vssl_A_ops", "B54", "B69", 54, "B"),
+        StandardTable(xf, "Structure Calcs", "vssl_A_hours", "C55", "G69", 54, "B"),
+        StandardTable(xf, "Structure Calcs", "vssl_A_hours_loc", "C54", "G54", 54),
+        StandardTable(xf, "Structure Calcs", "vssl_A_deck_hand_hours", "H55", "L69", 54, "B"),
+        StandardTable(xf, "Structure Calcs", "vssl_B_ops", "B75", "B89", 54, "B"),
+        StandardTable(xf, "Structure Calcs", "vssl_B_hours", "C75", "G89", 54, "B"),
+        StandardTable(xf, "Structure Calcs", "vssl_B_deck_hand_hours", "H75", "L89", 54, "B"),
+        StandardTable(xf, "Structure Calcs", "vssl_C_ops", "B95", "B109", 54, "B"),
+        StandardTable(xf, "Structure Calcs", "vssl_C_hours", "C95", "G109", 54, "B"),
+        StandardTable(xf, "Structure Calcs", "vssl_C_deck_hand_hours", "H95", "L109", 54, "B"),
+        StandardTable(xf, "Structure Calcs", "vssl_machine_hours", "C114", "G128", 54, "B"),
+        StandardTable(xf, "Structure Calcs", "vssl_machine_deck_hand_hours", "H114", "L128", 54, "B"),
+        StandardTable(xf, "Operations", "vessel_inputs", "D4", "Q18", 3, "B"),
+        StandardTable(xf, "Operations", "vsl_A_annual_time", "D45", "Q48", 3, "B"),
+        StandardTable(xf, "Operations", "vsl_B_annual_time", "D51", "Q54", 3, "B"),
+        StandardTable(xf, "Operations", "vsl_C_annual_time", "D57", "Q60", 3, "B"),
+        StandardTable(xf, "Operations", "vsl_A_deck_hand_annual", "D64", "Q67", 3, "B"),
+        StandardTable(xf, "Operations", "vsl_B_deck_hand_annual", "D70", "Q73", 3, "B"),
+        StandardTable(xf, "Operations", "vsl_C_deck_hand_annual", "D76", "Q79", 3, "B"),
+        StandardTable(xf, "Operations", "non_vessel_deck_hand_annual_requirements", "D82", "Q85", 3, "B"),
+        StandardTable(xf, "Operations", "dates", "D87", "Q88", 3, "B"),
+        StandardTable(xf, "Operations", "non_vessel_ops", "D281", "Q283", 3, "B"),
+        StandardTable(xf, "Operations", "capacity_per_month", "D93", "Q104", 3, "B"),
+        StandardTable(xf, "Operations", "month_used_even_years", "D108", "Q119", 3, "B"),
+        StandardTable(xf, "Operations", "even_years_months", "B108", "B119", 103, "B"),
+        StandardTable(xf, "Operations", "month_used_odd_years", "D122", "Q133", 3, "B"),
+        StandardTable(xf, "Operations", "odd_years_months", "B122", "B133", 117, "B"),
+        StandardTable(xf, "Operations", "crew_reqs", "D135", "Q136", 3, "B"),
+        StandardTable(xf, "Operations", "vessel_A", "D139", "Q183", 138, "B"),
+        StandardTable(xf, "Operations", "vessel_A_cols", "D138", "Q138", 138),
+        StandardTable(xf, "Operations", "vessel_B", "D187", "Q231", 186, "B"),
+        StandardTable(xf, "Operations", "vessel_B_col", "D186", "Q186", 186),
+        StandardTable(xf, "Operations", "vessel_C", "D234", "Q278", 233, "B"),
+        StandardTable(xf, "Operations", "vessel_C_col", "D233", "Q233", 233),
+        StandardTable(xf, "Operations", "financing_mult", "D300", "Z300", 4, "B"),
+        StandardTable(xf, "Operations", "month_info", "T109", "X132",108),
+        StandardTable(xf, "Operations", "work_hours_per_day", "D90", "Q90",3, "B"),
+        DefTable(xf, "Structure Assumptions", "task_settings", "B3", "BA73", "B2:BA2", "F3:F73"),
+        StandardTable(xf, "Structure Assumptions", "assembly", "D77", "AH100", 76, "C"),
+        StandardTable(xf, "growth model", "growth_curve", "B21", "G272", 18),
+        StandardTable(xf, "growth model", "harvest_period", "H21", "Y117", 18),
+        StandardTable(xf, "Site Inputs", "weather_days", "C68", "AD88", 67),
+        StandardTable(xf, "Site Inputs", "sig_wave_height", "B21", "Q59", 20),
+        StandardTable(xf, "Site Inputs", "vessel_weather_days", "AA21", "AF32", 20, "AA"),
+        StandardTable(xf, "Site Inputs", "oyster_site_params", "L95", "P98", 101, "K"),
+        StandardTable(xf, "Site Inputs", "oyster_site", "C103", "P2677", 101),
+        StandardTable(xf, "Machines", "info", "D3", "AA27", 2, "B"),
+        StandardTable(xf, "Machines", "estimated_cost_breakdown", "D30", "AA36", 2, "B"),
+        StandardTable(xf, "Machines", "calcs", "D40", "AA46", 2, "B"),
+        StandardTable(xf, "Machines", "cost_per_machine", "D48", "AA55", 2, "B"),
+        StandardTable(xf, "Machines", "power_support", "D58", "AA63", 2, "B"),
+        StandardTable(xf, "Machines", "combined", "D66", "AA67", 2, "B"),
+        StandardTable(xf, "Machines", "used_on_vessel", "D70", "AA82", 2, "B"),
+        StandardTable(xf, "Machines", "quantity_required", "D86", "AA100", 2, "B"),
+        StandardTable(xf, "Machines", "rented_machinery", "D107", "AA109", 2, "B"),
+        StandardTable(xf, "Machines", "time_needed", "D114", "AA125", 2, "B"),
+        StandardTable(xf, "Machines", "min_needed", "D128", "AA139", 2, "B"),
+        StandardTable(xf, "Equip&Mat Assumptions", "tasks", "B4", "BG47", 3, "H"),
+        StandardTable(xf, "Equip&Mat Assumptions", "equipment", "C51", "AG69", 47, "C"),
+        StandardTable(xf, "Equip&Mat Assumptions", "materials", "C73", "N90", 69, "C"),
+        # Equip&Mat Calcs
+        StandardTable(xf, "Equip&Mat Calcs", "tasks", "W2", "BN2", 2),
+        StandardTable(xf, "Equip&Mat Calcs", "vssl_or_machine_time", "W4", "BN34", 2, "B"),
+        StandardTable(xf, "Equip&Mat Calcs", "deck_hand_time", "W38", "BN66", 2, "U"),
+        StandardTable(xf, "Equip&Mat Calcs", "monthly_machine_use", "W77", "BN88", 2, "V"),
+        StandardTable(xf, "Equip&Mat Calcs", "equipment", "B4", "N34", 2, "B"),
+        StandardTable(xf, "Equip&Mat Calcs", "per_item_names", "K2", "N2", 2),
+        StandardTable(xf, "Equip&Mat Calcs", "vssl_A_hours", "D120", "G133", 119, "B"),
+        StandardTable(xf, "Equip&Mat Calcs", "vssl_A_ops", "B120", "B133", 119, "B"),
+        StandardTable(xf, "Equip&Mat Calcs", "vssl_A_hours_loc", "D119", "G119", 119),
+        StandardTable(xf, "Equip&Mat Calcs", "vssl_B_hours", "D139", "G152", 138, "B"),
+        StandardTable(xf, "Equip&Mat Calcs", "vssl_B_ops", "B139", "B152", 138, "B"),
+        StandardTable(xf, "Equip&Mat Calcs", "vssl_B_hours_loc", "D138", "G152", 138),
+        StandardTable(xf, "Equip&Mat Calcs", "vssl_C_hours", "D157", "G170", 156, "B"),
+        StandardTable(xf, "Equip&Mat Calcs", "vssl_C_ops", "B157", "B170", 156, "B"),
+        StandardTable(xf, "Equip&Mat Calcs", "vssl_C_hours_loc", "D156", "G156", 156),
+        StandardTable(xf, "Equip&Mat Calcs", "non_vssl_hours", "D175", "G188", 174),
+        StandardTable(xf, "Equip&Mat Calcs", "non_vssl_hours_loc", "D174", "G174", 174),
+
+        StandardTable(xf, "Equip&Mat Calcs", "deck_hand_vssl_A_hours", "K120", "N133", 119, "B"),
+        StandardTable(xf, "Equip&Mat Calcs", "deck_hand_vssl_A_hours_loc", "K119", "N119", 119),
+        StandardTable(xf, "Equip&Mat Calcs", "deck_hand_vssl_B_hours", "K139", "N152", 138, "B"),
+        StandardTable(xf, "Equip&Mat Calcs", "deck_hand_vssl_B_hours_loc", "K138", "N152", 138),
+        StandardTable(xf, "Equip&Mat Calcs", "deck_hand_vssl_C_hours", "K157", "N170", 156, "B"),
+        StandardTable(xf, "Equip&Mat Calcs", "deck_hand_vssl_C_hours_loc", "K156", "N156", 156),
+        StandardTable(xf, "Equip&Mat Calcs", "deck_hand_non_vssl_hours", "K175", "N188", 174),
+        StandardTable(xf, "Equip&Mat Calcs", "deck_hand_non_vssl_hours_loc", "K174", "N174", 174),
+
+        StandardTable(xf, "3. Seed", "capex", "AO4", "BI30", 3, "AM"),
+        DefTable(xf, "oyster gear", "gear", "B5", "AB28", "B3:AB3", ""),
+        StandardTable(xf, "KAM Results", "structural", "B9", "G47", 8, "B"),
+        StandardTable(xf, "Vessel_Library", "library", "E6", "Q39", 3, "B"),
+        StandardTable(xf, "Vessel_Library", "workable_wave_height", "E42", "Q42", 41, "B"),
+        StandardTable(xf, "Vessel_Library", "weather_day_portion", "E43", "Q54", 41, "B"),
+        DefTable(xf, "standard tasks", "structure_related", "B3", "AX66", "B2:AX2", "F3:F66"),
+        DefTable(xf, "standard tasks", "equip_related", "B70", "Z140", "B2:Z2", "F70:F140"),
+        DefTable(xf, "standard tasks", "equip_flags", "AA70", "BC140", "AA69:BC69", ""),
+        StandardTable(xf, "material properties", "props", "C3", "W37", 2, "B"),
+        StandardTable(xf, "Anchor Sizing", "anchors", "L3", "N44", 2, "J"),
+        StandardTable(xf, "Anchor Sizing", "deployment", "C58", "D60", 57, "C"),
+        StandardTable(xf, "Anchor Sizing", "sediment_type", "C63", "F66", 62, "C"),
+        StandardTable(xf, "Anchor Sizing", "k_soils", "J82", "M82",82),
+        StandardTable(xf, "Anchor Sizing", "a_soils", "D82", "H82",82),
+        StandardTable(xf, "growth- cohort group 1", "growth", "B10", "BX157",9),
+    ]
+
+    extra_ranges = [
+        ("oyster Husbandry model", "A13", "JI25")
+        ("oyster Husbandry model", "A31", "JI116")
+        ("oyster Husbandry model", "I29", "AF30")
+        ("oyster Husbandry model", "I8", "AF9")
+        ("oyster Husbandry model", "CK8", "DH11")
+        ("oyster Husbandry model", "DM6", "DW11")
+        ("oyster Husbandry model", "EE5", "EO11")
+        ("oyster Husbandry model", "HC6", "HM11")
+        ("oyster Husbandry model", "IH7", "IR11")
+        ("oyster Husbandry model", "FI6", "FS11")
+        # ("growth- cohort group 1", "B10", "BX157")
+        ("growth- cohort group 2", "B11", "BX82")
+        ("growth- cohort group 3", "B11", "BX82")
+        ("aggregated oyster growth", "E4", "G4")
+        ("aggregated oyster growth", "I4", "K4")
+        ("Lists", "B15", "B18")
+        ("Equip&Mat Assumptions", "C95", "C98")
+    ]
+
+    for (sheet, top_left, bottom_right) in extra_ranges
+        left, top = XLConvert.parse_cell(top_left)
+        right, bottom = XLConvert.parse_cell(bottom_right)
+
+        table_name = "$(top_left)_$(bottom_right)"
+        col_names = XLSX.encode_column_number.(left:right)
+        # old_name = getname(table_to_grow)
+        table = ExcelTable(sheet, table_name, top_left, bottom_right, "", "", col_names, missing)
+        push!(tables, table)
+    end
+    # tables = [propulsion_table]
+    # tables = XLConvert.ExcelTable[]
+    @time find_tables!(tables, used_subset)
+
+    tables
+end
+
+function group_and_func_statements(statements)
+    println("-"^40)
+    println("Group statements")
+    println("-"^40)
+    @time grouped_statements = group_statements(statements)
+    println("-"^40)
+    println("Group statements (again)")
+    println("-"^40)
+    @time grouped_statements = group_statements(grouped_statements)
+    println("-"^40)
+    println("Add functions")
+    println("-"^40)
+    @time statements_with_funcs = add_functions(grouped_statements, min_intermediates = 2)
+
+    statements_with_funcs
+end
+
+function make_raw_statements(used_subset::XLConvert.ExcelWorkbook2, tables)
+    @time "Make statements" statements = make_statements(used_subset)
+    @time "if_multiple_transform" if_multiple_transform!(statements)
+    @time "if_toggle_transform" if_toggle_transform!(statements)
+    @time "round_if_transform" round_if_transform!(statements)
+    # @time "is_blank_transform" is_blank_transform!(statements)
+    @time "table_ref_transform" table_ref_transform!(statements, tables)
+    table_stmts = filter(s -> s isa XLConvert.TableStatement, statements)
+    @show length(table_stmts)
+
+    statements
+end
+
+function generate_statements(used_subset::XLConvert.ExcelWorkbook2, tables)
+    statements = begin
+        @time "Make statements" statements = make_statements(used_subset)
+        @time "if_multiple_transform" if_multiple_transform!(statements)
+        @time "if_toggle_transform" if_toggle_transform!(statements)
+        @time "round_if_transform" round_if_transform!(statements)
+        @time "if_one_zero_transform" if_one_zero_transform!(statements)
+        # @time "is_blank_transform" is_blank_transform!(statements)
+        @time "table_ref_transform" table_ref_transform!(statements, tables)
+        # @time "indirect_xlookup_range_transform" indirect_xlookup_range_transform!(statements)
+        table_stmts = filter(s -> s isa XLConvert.TableStatement, statements)
+        @show length(table_stmts)
+        # return statements
+
+        println("-"^40)
+        println("new broadcast")
+        println("-"^40)
+        @time statements = new_broadcast(statements, debug = false)
+
+
+        # println("-"^40)
+        # println("Table Broadcast Transform")
+        # println("-"^40)
+        # @time statements = table_broadcast_transform_2d!(statements)
+        # println("-"^40)
+        # println("Flexible Table Broadcast Transform")
+        # println("-"^40)
+        # @time statements = flexible_table_broadcast_transform_2d!(statements)
+        println("-"^40)
+        println("Group statements")
+        println("-"^40)
+        @time grouped_statements = group_statements(statements)
+        println("-"^40)
+        println("Add functions")
+        println("-"^40)
+        @time statements_with_funcs = add_functions(grouped_statements, min_intermediates = 2)
+        println("-"^40)
+        println("Group statements (again)")
+        println("-"^40)
+        @time statements_with_funcs = group_statements(statements_with_funcs)
+        # statements_with_funcs = add_functions(statements, min_intermediates=2)
+
+        statements_with_funcs
+    end
+
+    statements
+
+end
+
+function analyze_sheet_dependencies(statements::Vector{AbstractStatement}, stmt_graph::DiGraph{Int64}; test_sheet = nothing)
+    function get_statement_sheets(stmt::AbstractStatement)
+        set_cells = get_set_cells(stmt)
+        unique((c -> c.sheet_name).(set_cells))
+    end
+
+    function summarize_sheet_list(sheets::Vector{String}; max_items::Int = 3)
+        isempty(sheets) && return "<none>"
+        sorted_sheets = sort(sheets)
+        shown = sorted_sheets[1:min(max_items, length(sorted_sheets))]
+        out = join(shown, ", ")
+        if length(sorted_sheets) > max_items
+            out *= ", ..."
+        end
+        out
+    end
+
+    function get_statement_label(i::Int)
+        set_cells = sort(get_set_cells(statements[i]))
+        sheets = get_statement_sheets(statements[i])
+        sheet_suffix = length(sheets) <= 1 ? "" : " [sheets: $(summarize_sheet_list(sheets))]"
+
+        if isempty(set_cells)
+            return "stmt[$i]$sheet_suffix"
+        elseif length(set_cells) == 1
+            c = set_cells[1]
+            return "$(c.sheet_name)!$(c.cell)$sheet_suffix"
+        else
+            c = set_cells[1]
+            return "$(c.sheet_name)!$(c.cell) (+$(length(set_cells) - 1) cells)$sheet_suffix"
+        end
+    end
+
+    function summarize_cells(cells::Set{CellDependency}; max_items::Int = 6)
+        if isempty(cells)
+            return "none"
+        end
+
+        sorted_cells = sort!(collect(cells))
+        shown = sorted_cells[1:min(max_items, length(sorted_cells))]
+        text = join(["$(c.sheet_name)!$(c.cell)" for c in shown], ", ")
+        if length(sorted_cells) > max_items
+            text *= ", ..."
+        end
+
+        text
+    end
+
+    cell_deps_sets = Vector{Union{Nothing, Set{CellDependency}}}(nothing, length(statements))
+    set_cells_sets = Vector{Union{Nothing, Set{CellDependency}}}(nothing, length(statements))
+    # cell_deps_sets = [Set(get_cell_deps(s)) for s in statements]
+    # set_cells_sets = [Set(get_set_cells(s)) for s in statements]
+    function get_cell_deps_sets(stmt_i::Int)
+        cache = cell_deps_sets[stmt_i]
+        if isnothing(cache)
+            cache = Set(get_cell_deps(statements[stmt_i]))
+            cell_deps_sets[stmt_i] = cache
+            cache
+        else
+            cache
+        end
+    end
+
+    function get_set_cells_sets(stmt_i::Int)
+        cache = set_cells_sets[stmt_i]
+        if isnothing(cache)
+            cache = Set(get_set_cells(statements[stmt_i]))
+            set_cells_sets[stmt_i] = cache
+            cache
+        else
+            cache
+        end
+    end
+
+    function get_edge_cells(src_i::Int, dst_i::Int)
+        # src_deps = Set(get_cell_deps(statements[src_i]))
+        # dst_sets = Set(get_set_cells(statements[dst_i]))
+        src_deps = get_cell_deps_sets(src_i)
+        dst_sets = get_set_cells_sets(dst_i)
+        intersect(src_deps, dst_sets)
+    end
+
+    statements_by_sheet = group_to_dict(1:length(statements), i -> get_statement_sheets(statements[i]))
+    grouped_entries = collect(statements_by_sheet)
+    sort!(grouped_entries, by = kv -> join(first(kv), "|"))
+
+    sheet_reports = Dict{String, Any}()
+
+    for (sheets, sheet_statements) in grouped_entries
+        # Only analyze statements that set cells on exactly one sheet.
+        length(sheets) == 1 || continue
+        sheet = sheets[1]
+
+        if !isnothing(test_sheet) && sheet != test_sheet
+            continue
+        end
+
+        for i in sheet_statements
+
+        end
+        # cell_deps_sets = [Set(get_cell_deps(s)) for s in statements]
+        # set_cells_sets = [Set(get_set_cells(s)) for s in statements]
+
+        # sheet_statements is a list of statement indices, which correspond to nodes in stmt_graph.
+        sheet_node_set = Set(sheet_statements)
+
+        # Inputs to this sheet that originate from statements on other sheets.
+        external_inputs_by_sheet = Dict{String, Set{CellDependency}}()
+        for stmt_i in sheet_statements
+            for dep in get_cell_deps(statements[stmt_i])
+                dep.sheet_name == sheet && continue
+                push!(get!(()->Set{CellDependency}(), external_inputs_by_sheet, dep.sheet_name), dep)
+            end
+        end
+
+        # Outputs from this sheet that are consumed by statements on other sheets.
+        external_outputs_by_sheet = Dict{String, Set{CellDependency}}()
+        for producer_i in sheet_statements
+            # produced_cells = Set(get_set_cells(statements[producer_i]))
+            produced_cells = get_set_cells_sets(producer_i)
+            isempty(produced_cells) && continue
+
+            for consumer_i in inneighbors(stmt_graph, producer_i)
+                consumer_i in sheet_node_set && continue
+
+                # used_cells = intersect(produced_cells, Set(get_cell_deps(statements[consumer_i])))
+                used_cells = intersect(produced_cells, get_cell_deps_sets(consumer_i))
+                isempty(used_cells) && continue
+
+                consumer_sheets = get_statement_sheets(statements[consumer_i])
+                isempty(consumer_sheets) && (consumer_sheets = ["<unknown>"])
+
+                for consumer_sheet in consumer_sheets
+                    union!(get!(()->Set{CellDependency}(), external_outputs_by_sheet, consumer_sheet), used_cells)
+                end
+            end
+        end
+
+        # Detect chains that start on this sheet, leave it, and eventually return to it.
+        bridge_paths = Dict{Tuple{Int64, Int64}, Vector{Int64}}()
+        for start_node in sheet_statements
+            queue = Int64[]
+            parents = Dict{Int64, Int64}()
+            seen_external = Set{Int64}()
+
+            for n in outneighbors(stmt_graph, start_node)
+                n in sheet_node_set && continue
+                push!(queue, n)
+                push!(seen_external, n)
+                parents[n] = start_node
+            end
+
+            q_i = 1
+            while q_i <= length(queue)
+                node = queue[q_i]
+                q_i += 1
+
+                for next_node in outneighbors(stmt_graph, node)
+                    if next_node in sheet_node_set
+                        if next_node != start_node
+                            pair = (Int64(start_node), Int64(next_node))
+                            if !haskey(bridge_paths, pair)
+                                path = Int64[next_node]
+                                cur = node
+                                while true
+                                    push!(path, cur)
+                                    if cur == start_node
+                                        break
+                                    end
+                                    cur = parents[cur]
+                                end
+                                reverse!(path)
+                                bridge_paths[pair] = path
+                            end
+                        end
+                        continue
+                    end
+
+                    if !(next_node in seen_external)
+                        push!(seen_external, next_node)
+                        parents[next_node] = node
+                        push!(queue, next_node)
+                    end
+                end
+            end
+        end
+
+        bridge_boundary_inputs_by_sheet = Dict{String, Set{CellDependency}}()
+        bridge_boundary_outputs_by_sheet = Dict{String, Set{CellDependency}}()
+        boundary_edge_counts = Dict{Tuple{Int64, Int64}, Int64}()
+
+        for path in values(bridge_paths)
+            length(path) >= 2 || continue
+
+            first_edge = (path[1], path[2])
+            last_edge = (path[end-1], path[end])
+
+            boundary_edge_counts[first_edge] = get(boundary_edge_counts, first_edge, 0) + 1
+            boundary_edge_counts[last_edge] = get(boundary_edge_counts, last_edge, 0) + 1
+
+            for c in get_edge_cells(first_edge[1], first_edge[2])
+                push!(get!(()->Set{CellDependency}(), bridge_boundary_inputs_by_sheet, c.sheet_name), c)
+            end
+            for c in get_edge_cells(last_edge[1], last_edge[2])
+                push!(get!(()->Set{CellDependency}(), bridge_boundary_outputs_by_sheet, c.sheet_name), c)
+            end
+        end
+
+        # num_external_inputs = sum(length(v) for v in values(external_inputs_by_sheet))
+        # num_external_outputs = sum(length(v) for v in values(external_outputs_by_sheet))
+        num_external_inputs = sum(length, values(external_inputs_by_sheet), init = 0)
+        num_external_outputs = sum(length, values(external_outputs_by_sheet), init = 0)
+
+        println("\n" * "-"^50)
+        println("Sheet \"$sheet\" diagnostics")
+        println("- statements: $(length(sheet_statements))")
+        println("- external input cells: $num_external_inputs")
+        println("- external output cells: $num_external_outputs")
+        println("- cross-sheet pass-through chains: $(length(bridge_paths))")
+
+        if !isempty(external_inputs_by_sheet)
+            println("  Inputs by sheet:")
+            for dep_sheet in sort(collect(keys(external_inputs_by_sheet)))
+                cells = external_inputs_by_sheet[dep_sheet]
+                println("    <- $dep_sheet: $(length(cells)) ($(summarize_cells(cells)))")
+            end
+        end
+
+        if !isempty(external_outputs_by_sheet)
+            println("  Outputs used by sheet:")
+            for out_sheet in sort(collect(keys(external_outputs_by_sheet)))
+                cells = external_outputs_by_sheet[out_sheet]
+                println("    -> $out_sheet: $(length(cells)) ($(summarize_cells(cells)))")
+            end
+        end
+
+        if !isempty(bridge_paths)
+            println("  Pass-through boundary cells (where cross-sheet coupling happens):")
+            if !isempty(bridge_boundary_inputs_by_sheet)
+                println("    External -> this sheet edge cells:")
+                for dep_sheet in sort(collect(keys(bridge_boundary_inputs_by_sheet)))
+                    cells = bridge_boundary_inputs_by_sheet[dep_sheet]
+                    println("      <- $dep_sheet: $(length(cells)) ($(summarize_cells(cells)))")
+                end
+            end
+            if !isempty(bridge_boundary_outputs_by_sheet)
+                println("    This sheet -> external edge cells:")
+                for out_sheet in sort(collect(keys(bridge_boundary_outputs_by_sheet)))
+                    cells = bridge_boundary_outputs_by_sheet[out_sheet]
+                    println("      -> $out_sheet: $(length(cells)) ($(summarize_cells(cells)))")
+                end
+            end
+
+            println("  Most common pass-through boundary edges:")
+            sorted_edges = collect(boundary_edge_counts)
+            sort!(sorted_edges, by = kv -> kv[2], rev = true)
+            for (edge, count) in sorted_edges[1:min(6, length(sorted_edges))]
+                src_i, dst_i = edge
+                edge_cells = get_edge_cells(src_i, dst_i)
+                src_sheets = summarize_sheet_list(get_statement_sheets(statements[src_i]))
+                dst_sheets = summarize_sheet_list(get_statement_sheets(statements[dst_i]))
+
+                println("    * $(get_statement_label(src_i)) -> $(get_statement_label(dst_i))")
+                println("      chains: $count | src sheets: [$src_sheets] | dst sheets: [$dst_sheets]")
+                println("      shared edge cells: $(summarize_cells(edge_cells))")
+            end
+
+            println("  Example pass-through chains:")
+            bridge_pairs = collect(keys(bridge_paths))
+            sort!(bridge_pairs, by = p -> (get_statement_label(p[1]), get_statement_label(p[2])))
+
+            for pair in bridge_pairs[1:min(6, length(bridge_pairs))]
+                path = bridge_paths[pair]
+                path_labels = join(get_statement_label.(path), " -> ")
+                external_sheets = Set{String}()
+
+                if length(path) > 2
+                    for node in path[2:(end-1)]
+                        for node_sheet in get_statement_sheets(statements[node])
+                            node_sheet == sheet && continue
+                            push!(external_sheets, node_sheet)
+                        end
+                    end
+                end
+
+                first_edge_cells = length(path) >= 2 ? get_edge_cells(path[1], path[2]) : Set{CellDependency}()
+                last_edge_cells = length(path) >= 2 ? get_edge_cells(path[end-1], path[end]) : Set{CellDependency}()
+
+                external_str = isempty(external_sheets) ? "<unknown>" : join(sort(collect(external_sheets)), ", ")
+                println("    * $(get_statement_label(pair[1])) reaches $(get_statement_label(pair[2])) via [$external_str]")
+                println("      path: $path_labels")
+                println("      boundary A edge cells: $(summarize_cells(first_edge_cells))")
+                println("      boundary B edge cells: $(summarize_cells(last_edge_cells))")
+            end
+        end
+
+        sheet_reports[sheet] = Dict(
+            :sheet_statements => sheet_statements,
+            :external_inputs_by_sheet => external_inputs_by_sheet,
+            :external_outputs_by_sheet => external_outputs_by_sheet,
+            :bridge_paths => bridge_paths,
+            :bridge_boundary_inputs_by_sheet => bridge_boundary_inputs_by_sheet,
+            :bridge_boundary_outputs_by_sheet => bridge_boundary_outputs_by_sheet,
+            :boundary_edge_counts => boundary_edge_counts,
+        )
+    end
+
+    sheet_reports
+end
+
+function export_statements(used_subset::XLConvert.ExcelWorkbook2, statements, tables)
+    xf = used_subset.xf
+    @time "get_all_referenced_cells" all_ref_cells = get_all_referenced_cells(used_subset)
+    # var_names_map = make_var_names_map(all_ref_cells, wb.xf)
+
+    println("Making var names map")
+    @time var_names_map = make_var_names_map(all_ref_cells, used_subset)
+
+    for (cell, name) in var_names_map
+        if name == "yield"
+            @show cell name
+            var_names_map[cell] = "yield_val"
+        end
+    end
+
+    used_cell_set = Set(get_all_referenced_cells(used_subset))
+    used_names = Set{String}()
+    vessels_sheet = xf["vessels"]
+    columns = ("AA", "AB", "AC")
+    column_names = ("loaded", "unloaded", "max_cruise")
+    for row in 43:332
+        cells = [CellDependency("vessels", "$col$row") for col in columns]
+        cells_used = in.(cells, Ref(used_cell_set))
+
+        # If none of the row cells are used, move on
+        any(cells_used) || continue
+
+        base_name = vessels_sheet["Y$row"]
+        unit = vessels_sheet["Z$row"]
+
+        # Skip is base_name is missing
+        ismissing(base_name) && continue
+
+        base_name = XLConvert.normalize_var_name(strip(base_name))
+
+        name = if base_name in used_names
+            if ismissing(unit)
+                base_name * "_$row"
+            else
+                base_name * "_" * unit
+            end
+        else
+            base_name
+        end
+        name = XLConvert.normalize_var_name(name)
+
+        push!(used_names, name)
+
+        if false && sum(cells_used) == 1
+            println("Single name! $name")
+            var_names_map[cells[cells_used][1]] = name
+        else
+            for i in eachindex(cells)
+                if cells_used[i]
+                    var_names_map[cells[i]] = name * "_" * column_names[i]
+                end
+            end
+        end
+    end
+    # vessel_solving_tbls = DefTable(xf, "vessels", "vsl_dsn", "AA43", "AC332", "AA6:AC6", "Y43:Y332")
+    # for key in keys(var_names_map)
+    #     if key in vessel_solving_tbls
+    #         r = rownum(key) - startrow(vessel_solving_tbls) + 1
+    #         c = colnum(key) - startcol(vessel_solving_tbls) + 1
+    #         r_name = XLConvert.row_name(vessel_solving_tbls, r)
+    #         c_name =XLConvert.column_name(vessel_solving_tbls, c)
+    #         var_names_map[key] = XLConvert.normalize_var_name("$(r_name)_$(c_name)")
+    #     end
+    # end
+
+
+
+    println("Setting names from tables!")
+    all_ref_cell_set = Set(all_ref_cells)
+    @time for t in tables
+        # set_names_from_table!(var_names_map, all_ref_cells, t)
+        set_names_from_table!(var_names_map, all_ref_cell_set, t)
+    end
+
+    handlers = Vector{AbstractHandler}()
+    handlers = [EdgeCaseHandler(), IndirectXlookupRangeHandler(), BasicOpHandler(), TableRefHandler(), EverythingElseHandler()]
+
+    # key_values_dict = Dict((p[1] => FormulaParser.toexpr(repr(p[2]))) for p in XLSX.get_workbook(wb.xf).workbook_names)
+    key_values_dict = copy(used_subset.key_values)
+    for (k, value) in key_values_dict
+        if value isa XLConvert.FlatExpr
+            key_values_dict[k] = XLConvert.insert_table_refs(value, tables)
+        end
+    end
+
+    println("Infer types")
+    cell_types = Dict{CellDependency, Any}()
+    for cell_dep in all_ref_cells
+        # cell_types[cell] = Any
+        cell_data = get_cell_value(used_subset, cell_dep)
+        try
+            ws = xf[string(cell_dep.sheet_name)]
+            type = if (cell_data isa MissingCell)
+                Missing
+            else
+                getdatatype(ws, cell_data.cell)
+            end
+            cell_types[cell_dep] = type
+        catch
+            cell_types[cell_dep] = Any
+        end
+
+        # if type === Any
+        #     println("Cell $(XLConvert.to_string(cell_dep)) has Any type!")
+        # end
+    end
+    # @time cell_types = infer_types(used_subset)
+
+    new_names_map = var_names_map
+    # exporter = JuliaExporter(used_subset, new_names_map, tables, key_values_dict, handlers, cell_types)
+    exporter = PythonExporter(used_subset, new_names_map, tables, key_values_dict, handlers, cell_types)
+
+
+    println("Write file")
+    @time write_file(exporter, "modular_tea.txt", used_subset, statements)
+
+    statements, exporter
+end
+
+function run(wb_in::XLConvert.ExcelWorkbook2)
+    wb = wb_in
+    xf = wb.xf
+
+    used_subset = wb
+
+    cell_graph = used_subset.cell_graph
+    @show nv(cell_graph) ne(cell_graph)
+    node_nums = 1:nv(cell_graph)
+    by_degree = sort(node_nums, by = v -> length(outneighbors(cell_graph, v)), rev = true)
+    for n in by_degree[begin:2]
+        cell = get_cell(used_subset, n)
+        println("Cell $cell has $(length(outneighbors(cell_graph, n))) outneighbors")
+        # @show length(outneighbors(cell_graph, n))
+        # @display get_expr(wb.cell_dict[cell])
+    end
+    check_cycles(used_subset)
+
+
+    println("-"^40)
+    println("Finding Tables")
+    println("-"^40)
+    tables = make_tables(used_subset)
+    # statements = get_statements(used_subset, tables)
+    statements = generate_statements(used_subset, tables)
+
+    const_cells = [
+        CellDependency("Anchor Sizing", "AE26"),
+        CellDependency("oyster Husbandry model", "DM6"),
+        CellDependency("Equip&Mat Assumptions", "AC3"),
+        CellDependency("Site Inputs", "C68"),
+        CellDependency("Equip&Mat Calcs", "K2"),
+        CellDependency("Equip&Mat Calcs", "W2"),
+        CellDependency("Equip&Mat Calcs", "B120"),
+        CellDependency("Equip&Mat Calcs", "D119"),
+        CellDependency("Equip&Mat Calcs", "B139"),
+        CellDependency("Equip&Mat Calcs", "B157"),
+        CellDependency("Equip&Mat Calcs", "B175"),
+        CellDependency("Equip&Mat Calcs", "D138"),
+        CellDependency("Equip&Mat Calcs", "D156"),
+        CellDependency("Equip&Mat Calcs", "K119"),
+        CellDependency("Equip&Mat Calcs", "K138"),
+        CellDependency("Equip&Mat Calcs", "K156"),
+        CellDependency("Equip&Mat Calcs", "K174"),
+        CellDependency("Structure Calcs", "P4"),
+        CellDependency("Structure Calcs", "B55"),
+        CellDependency("Structure Calcs", "C54"),
+        CellDependency("Structure Calcs", "B75"),
+        CellDependency("Structure Calcs", "B95"),
+        CellDependency("Structure Calcs", "C74"),
+        CellDependency("Structure Calcs", "C94"),
+        CellDependency("Structure Calcs", "CN4"),
+        CellDependency("Structure Calcs", "B114"),
+        CellDependency("Structure Calcs", "H113"),
+        CellDependency("Structure Calcs", "H54"),
+        CellDependency("Structure Calcs", "H74"),
+        CellDependency("Structure Calcs", "H94"),
+        CellDependency("Structure Assumptions", "AD2"),
+        CellDependency("Structure Assumptions", "X76"),
+        CellDependency("Machines", "B70"),
+        CellDependency("Machines", "B86"),
+    ]
+    for stmt in statements
+        set_cells = get_set_cells(stmt)
+        if length(set_cells) == 1 && set_cells[1] in const_cells
+            lhs = set_cells[1]
+            if stmt isa XLConvert.StandardStatement
+                stmt.rhs_expr = xf[lhs.sheet_name][lhs.cell]
+            elseif stmt isa XLConvert.TableStatement
+                stmt.rhs_expr = xf[lhs.sheet_name][lhs.cell]
+            end
+        end
+    end
+
+    override_values = [
+        (CellDependency("oyster Husbandry model", "H9"), 0.0)
+        (CellDependency("KAM Results", "J10"), 0.0)
+        (CellDependency("KAM Results", "J11"), 0.0)
+        (CellDependency("KAM Results", "J13"), 0.0)
+        (CellDependency("KAM Results", "J14"), 0.0)
+        (CellDependency("KAM Results", "J31"), 0.0)
+        (CellDependency("KAM Results", "J32"), 0.0)
+        (CellDependency("KAM Results", "J34"), 0.0)
+        (CellDependency("KAM Results", "J35"), 0.0)
+        (CellDependency("KAM Results", "J40"), 0.0)
+        (CellDependency("KAM Results", "J41"), 0.0)
+    ]
+    for (cell, new_value) in override_values
+        for stmt in statements
+            if cell in get_set_cells(stmt)
+                @show stmt
+                if stmt isa XLConvert.StandardStatement
+                    stmt.rhs_expr = new_value
+                else
+                    throw("Don't know how to override statement $stmt")
+                end
+            end
+        end
+    end
+
+
+
+    export_statements(used_subset, statements, tables)
+
+    statements, tables
+end
+
+function debug_types_for_statement(wb, statements, cell_dep)
+    target_output = CellDependency("Results", "C26")
+    all_target_outputs = [target_output]
+
+    @time used_subset = get_workbook_subset(wb, all_target_outputs)
+
+    key_values_dict = copy(wb.key_values)
+    # for (k, value) in key_values_dict
+    #     if value isa XLConvert.FlatExpr
+    #         key_values_dict[k] = XLConvert.insert_table_refs(value, tables)
+    #     end
+    # end
+
+    println("Infer types")
+    @time cell_types = infer_types(used_subset)
+    node = findfirst(s -> cell_dep in XLConvert.get_set_cells(s), statements)
+    @show node
+    statement = statements[node]
+    @show statement
+    if statement isa XLConvert.StandardStatement || statement isa XLConvert.TableStatement
+        expr = statement.rhs_expr
+        XLConvert.print_type_debug(expr, cell_dep.sheet_name, cell_types, key_values_dict)
+    elseif statement isa XLConvert.FunctionStatement
+        sub_node = findfirst(s -> cell_dep in XLConvert.get_set_cells(s), statement.intermediates)
+        @show sub_node
+        statement = statement.intermediates[sub_node]
+        if statement isa XLConvert.StandardStatement || statement isa XLConvert.TableStatement
+            expr = statement.rhs_expr
+            XLConvert.print_type_debug(expr, cell_dep.sheet_name, cell_types, key_values_dict)
+        end
+    end
+
+end
+
+function get_long_exprs(wb::XLConvert.ExcelWorkbook)
+    formulas = [p for p in pairs(wb.cell_dict) if p[2] isa XLConvert.FormulaCell]
+
+    exprs = [Pair(p[1], p[2].expr) for p in formulas if p[2].expr isa XLConvert.FlatExpr]
+
+    function expr_length(p)
+        e = p[2]
+        length(e.parts)
+    end
+
+    sort!(exprs, by = expr_length, rev = true)
+
+    for (cell, expr) in exprs[begin:10]
+
+        println(cell)
+
+        show(stdout, "text/plain", expr)
+        println("\n")
+    end
+
+
+end
+

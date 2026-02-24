@@ -389,6 +389,99 @@ function get_all_referenced_cells(workbook::ExcelWorkbook)
     # collect(unioned)
 end
 
+function force_cells_to_be_value(workbook::XLConvert.ExcelWorkbook2, cells::Vector{CellDependency})
+    graph = workbook.cell_graph
+    n_nodes = nv(graph)
+
+    # Resolve requested cells to unique node numbers.
+    forced_mask = falses(n_nodes)
+    forced_nodes = Int64[]
+    sizehint!(forced_nodes, length(cells))
+    obj_nums = workbook.cell_numbering.obj_nums
+    for target in cells
+        node_num = get(obj_nums, target, 0)
+        if node_num > 0 && !forced_mask[node_num]
+            forced_mask[node_num] = true
+            push!(forced_nodes, node_num)
+        end
+    end
+
+    if isempty(forced_nodes)
+        return workbook
+    end
+
+    # removal_candidates = all upstream dependencies of forced cells, excluding forced cells.
+    removal_candidates = falses(n_nodes)
+    for node_num in forced_nodes
+        parents = bfs_parents(graph, node_num, dir = :out)
+        @. removal_candidates |= parents > 0
+    end
+    removal_candidates[forced_nodes] .= false
+
+    # required_candidates = candidate seeds and all their dependencies.
+    required_candidates = falses(n_nodes)
+    # Seeds are candidate nodes that are required by at least one non-candidate/non-forced dependent.
+    # required_seed_nodes = Int64[]
+    for node in eachindex(removal_candidates)
+        !removal_candidates[node] && continue
+
+        for dependent in inneighbors(graph, node)
+            if !removal_candidates[dependent] && !forced_mask[dependent]
+                parents = bfs_parents(graph, node, dir = :out)
+                @. required_candidates |= (parents > 0) & removal_candidates
+                # push!(required_seed_nodes, node)
+                break
+            end
+        end
+    end
+
+
+    used_mask = @. !(removal_candidates & !required_candidates)
+
+    used_nodes_list = findall(used_mask)
+    println("Removing $(nv(graph) - length(used_nodes_list)) nodes")
+
+    (subgraph, vmap) = induced_subgraph(graph, used_nodes_list)
+
+    # Remove dependencies from forced nodes in the subgraph so they are true value cells.
+    old_to_new = zeros(Int64, n_nodes)
+    for (new_node, old_node) in enumerate(vmap)
+        old_to_new[old_node] = new_node
+    end
+    for old_node in forced_nodes
+        new_node = old_to_new[old_node]
+        if new_node > 0
+            deps = collect(outneighbors(subgraph, new_node))
+            for dep in deps
+                rem_edge!(subgraph, new_node, dep)
+            end
+        end
+    end
+
+    cell_numbering = XLConvert.ObjectNumbering(workbook.cell_numbering.objs[vmap])
+
+    old_cells = workbook.cell_numbering.objs
+    cell_dict = Dict{CellDependency, Any}()
+    sizehint!(cell_dict, length(vmap))
+    for old_node in vmap
+        cell = old_cells[old_node]
+        cell_val = get(workbook.cell_dict, cell, MissingCell())
+
+        if forced_mask[old_node] && !(cell_val isa XLConvert.ValueCell || cell_val isa XLConvert.MissingCell)
+            if cell_val isa XLConvert.FormulaCell
+                cell_dict[cell] = XLConvert.ValueCell(cell_val.cell, workbook.xf[cell.sheet_name][cell.cell])
+            else
+                xcell = XLSX.getcell(workbook.xf[cell.sheet_name], cell.cell)
+                cell_dict[cell] = XLConvert.ValueCell(xcell, workbook.xf[cell.sheet_name][cell.cell])
+            end
+        else
+            cell_dict[cell] = cell_val
+        end
+    end
+
+    XLConvert.ExcelWorkbook(workbook.xf, cell_numbering, cell_dict, subgraph, workbook.key_values)
+end
+
 function get_workbook_subset(workbook::XLConvert.ExcelWorkbook2, output_cells::Vector{CellDependency})
     all_referenced_nodes = get_all_referenced_cells(workbook)
     for cell in output_cells
@@ -506,7 +599,7 @@ function get_workbook_subset(workbook::XLConvert.ExcelWorkbook2, output_cells::V
     cell_dict = Dict{CellDependency, Any}()
     for n in used_nodes_list
         cell = get_cell(workbook, n)
-        cell_val = workbook.cell_dict[cell]
+        cell_val = get(workbook.cell_dict, cell, MissingCell())
         if subgraph_mask[n] || cell_val isa XLConvert.ValueCell || cell_val isa XLConvert.MissingCell
             cell_dict[cell] = cell_val
         else

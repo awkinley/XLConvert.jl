@@ -22,6 +22,7 @@ function normalize_var_name(name)
         ';' => "",
         ':' => "_",
         '?' => "_",
+        '>' => "gt_",
     )
 
     if isnumeric(first(res))
@@ -98,7 +99,7 @@ function make_var_names_map(cell_dependencies::Vector{CellDependency}, wb::Excel
     for (name, expr) in named_values
         referenced_cell = get_single_cell_ref(expr)
         if !ismissing(referenced_cell)
-            named_cells[referenced_cell] = name
+            named_cells[referenced_cell] = normalize_var_name(name)
         end
     end
 

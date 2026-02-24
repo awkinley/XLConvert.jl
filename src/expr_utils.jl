@@ -68,6 +68,15 @@ function WorkbookRegion(sheet::AbstractString, first_cell::AbstractString, last_
     WorkbookRegion(CellDependency(sheet, first_cell), CellDependency(sheet, last_cell))
 end
 
+function cells(region::WorkbookRegion)
+    start_c, start_r = start_coord(region)
+    end_c, end_r = end_coord(region)
+
+    sheet = region.first.sheet_name
+
+    [CellDependency(sheet, c, r) for c in start_c:end_c, r in start_r:end_r]
+end
+
 """
 (start_column, start_row) of the range
 """

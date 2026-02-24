@@ -100,7 +100,8 @@ export CellDependency,
     xl_iferror,
     xl_convert,
     xl_isnumber,
-    @flat_match
+    @flat_match,
+    handle
 
 
 

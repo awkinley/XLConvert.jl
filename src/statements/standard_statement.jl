@@ -94,22 +94,25 @@ function export_statement(exporter::PythonExporter, wb::ExcelWorkbook, statement
         rhs = convert(exporter, new_expr, cell_ref.sheet_name)
         res *= "\t" * rhs * "\n"
         res *= "end\n"
-        res *= "assert xl_compare($lhs, $(repr(xf[string(cell_ref.sheet_name)][cell_ref.cell]))) # $(to_string(cell_ref))\n"
+        res *= "assert xl.compare($lhs, $(repr(xf[string(cell_ref.sheet_name)][cell_ref.cell]))) # $(to_string(cell_ref))\n"
 
         res
     else
 
         rhs = convert(exporter, expr, cell_ref.sheet_name)
 
-        # """
-        # # =$formula_str
-        # $lhs = $rhs # $(cell_ref.sheet_name) $(cell_ref.cell)
-        # @assert xl_compare($lhs, $(repr(xf[string(cell_ref.sheet_name)][cell_ref.cell]))) # $(to_string(cell_ref))
-        # """
+        cell_value = xf[string(cell_ref.sheet_name)][cell_ref.cell]
+        value_str = convert(exporter, cell_value, cell_ref.sheet_name)
+
         """
         # =$formula_str
         $lhs = $rhs # $(cell_ref.sheet_name) $(cell_ref.cell)
+        assert xl.compare($lhs, $(value_str)) # $(to_string(cell_ref))
         """
+        # """
+        # # =$formula_str
+        # $lhs = $rhs # $(cell_ref.sheet_name) $(cell_ref.cell)
+        # """
 
     end
 
