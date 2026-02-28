@@ -295,10 +295,10 @@ function export_statement(exporter::PythonExporter, wb::ExcelWorkbook, statement
         col_is_num = false
         col_loc = if col_behavior == (0, 0)
             col_names = column_name.(Ref(param_table), col_idx)
-            if length(col_idx) == size(param_table)[2]
-                ":"
-            elseif length(col_idx) == 1
+            if length(col_idx) == 1
                 "$(repr(col_names))"
+            elseif length(col_idx) == size(param_table)[2]
+                ":"
             else
                 "$(repr(first(col_names))):$(repr(last(col_names)))"
             end
@@ -318,7 +318,13 @@ function export_statement(exporter::PythonExporter, wb::ExcelWorkbook, statement
         param_cols = length(col_idx)
         # push!(lines, "# col_loc = $col_loc")
         index_str = @match (row_is_num, col_is_num) begin
-            (false, false) => ".loc[$row_loc, $col_loc]"
+            (false, false) => begin
+                if param_rows == param_cols == 1
+                    ".at[$row_loc, $col_loc]"
+                else
+                    ".loc[$row_loc, $col_loc]"
+                end
+            end
             (true, false) => begin
                 if size(param_table)[2] == 1
                     ".iloc[$row_loc, 0]"
