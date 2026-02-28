@@ -151,6 +151,8 @@ function XLConvert.handle(::EdgeCaseHandler, expr::ExcelExpr, exporter::PythonEx
                 val::AbstractString => begin
                     if any(s -> startswith(val, s), [">", "<"])
                         "($test_val_str $val)"
+                    elseif val == ""
+                        "($test_val_str.fillna(\"\") == $(repr(val)))"
                     else
                         "($test_val_str == $(repr(val)))"
                     end
@@ -196,6 +198,10 @@ function XLConvert.handle(::EdgeCaseHandler, expr::ExcelExpr, exporter::PythonEx
         ExcelExpr(:call, ["_xlfn._xlws.FILTER", vals, ExcelExpr(:eq, [test_lhs, test_rhs])]) => begin
             vals_str = func(vals)
             "$vals_str[$(func(test_lhs)) == $(func(test_rhs))]"
+        end
+        ExcelExpr(:call, ["_xlfn._xlws.FILTER", vals, ExcelExpr(:eq, [test_lhs, test_rhs]), if_empty_val]) => begin
+            vals_str = func(vals)
+            "$vals_str[($(func(test_lhs)) == $(func(test_rhs))).values.squeeze()]"
         end
         ExcelExpr(:call, ["_xlfn._xlws.FILTER", vals, ExcelExpr(:call, ["IFERROR", error_range, 0])]) => begin
             vals_str = func(vals)
@@ -248,6 +254,10 @@ function XLConvert.handle(::EdgeCaseHandler, expr::ExcelExpr, exporter::PythonEx
             mask = make_ifs_mask(args)
             "xl.xlsum($mask)"
         end
+        ExcelExpr(:call, ["COUNTIF", args...]) => begin
+            mask = make_ifs_mask(args)
+            "xl.xlsum($mask)"
+        end
         ExcelExpr(:call, ["AVERAGEIFS", range, args...]) => begin
             mask = make_ifs_mask(args)
             "xl.average($(func(range))[$mask])"
@@ -264,6 +274,24 @@ function XLConvert.handle(::EdgeCaseHandler, expr::ExcelExpr, exporter::PythonEx
             else
                 binop_str
             end
+        end
+        ExcelExpr(:call, ["_xlfn.XLOOKUP",
+            ExcelExpr(:&, [concat_lhs, "1"]),
+            ExcelExpr(:&, [row_lhs, row_rhs]),
+            ExcelExpr(:table_ref, [res_table, res_row_idx, res_col_idx, _, _]),
+            0]
+        ) => begin
+            # Handles a very specific case to transform some code that's tough to make python match
+            @assert length(res_col_idx) == 1
+            if length(res_row_idx) != size(res_table)[1]
+                @match_fail
+            end
+
+            col_name = XLConvert.column_name(res_table, first(res_col_idx))
+            mask_str = "$(func(row_rhs)) == 1"
+            ref_str = string(func(row_lhs), ".loc[$mask_str]")
+            value_str = "$(getname(res_table)).loc[$mask_str, $(repr(col_name))]"
+            "xl.xlookup($(func(concat_lhs)), $ref_str, $value_str, 0)"
         end
         ExcelExpr(:call, ["_xlfn.XLOOKUP",
             ExcelExpr(:&, [concat_lhs, concat_rhs]),
@@ -332,6 +360,9 @@ function XLConvert.handle(::EdgeCaseHandler, expr::ExcelExpr, exporter::PythonEx
             tbl_name = getname(table)
             "$tbl_name.iloc[$row_idx, $col_idx:($(col_idx + 1) + int($(func(add_rhs)) - $(func(sub_rhs))))]"
 
+        end
+        ExcelExpr(:call, ["IFERROR", ExcelExpr(:/, [1, denom]), 0]) => begin
+            "xl.safe_recip($(func(denom)))"
         end
         _ => missing
     end
@@ -1260,8 +1291,8 @@ function lookup_const_propagate!(wb::XLConvert.ExcelWorkbook2, expr_in::XLConver
                     # @show value ref_range result_range
                     # @show ExcelExpr(:cell_ref, Any[value_cell.cell, value_cell.sheet_name])
                     value_cell = part_to_cell_dep(expr, value)
-                    @show value_cell
-                    @show expr.parts[value.i]
+                    # @show value_cell
+                    # @show expr.parts[value.i]
                     expr.parts[i] = ExcelExpr(:cell_ref, Any[value_cell.cell, value_cell.sheet_name])
                     continue
                 end
@@ -1949,7 +1980,7 @@ function get_subset(wb_in::XLConvert.ExcelWorkbook2)
     # inputs = [CellDependency("vessels", "AA13"), CellDependency("vessels", "AA16"), CellDependency("vessels", "AA17"), CellDependency("vessels", "AA18")]
     @show nv(wb.cell_graph) ne(wb.cell_graph)
 
-    test_cell = CellDependency("Operations", "I46")
+    # test_cell = CellDependency("Operations", "I46")
 
     wb = test_lookup_const_propagate(wb)
     @show nv(wb.cell_graph) ne(wb.cell_graph)
@@ -2059,17 +2090,16 @@ function make_tables(used_subset::XLConvert.ExcelWorkbook2)
         StandardTable(xf, "Site Inputs", "vessel_weather_days", "AA21", "AF32", 20, "AA"),
         StandardTable(xf, "Site Inputs", "oyster_site_params", "L95", "P98", 101, "K"),
         StandardTable(xf, "Site Inputs", "oyster_site", "C103", "P2677", 101),
-        StandardTable(xf, "Machines", "info", "D3", "AA27", 2, "B"),
-        StandardTable(xf, "Machines", "estimated_cost_breakdown", "D30", "AA36", 2, "B"),
-        StandardTable(xf, "Machines", "calcs", "D40", "AA46", 2, "B"),
-        StandardTable(xf, "Machines", "cost_per_machine", "D48", "AA55", 2, "B"),
-        StandardTable(xf, "Machines", "power_support", "D58", "AA63", 2, "B"),
-        StandardTable(xf, "Machines", "combined", "D66", "AA67", 2, "B"),
-        StandardTable(xf, "Machines", "used_on_vessel", "D70", "AA82", 2, "B"),
-        StandardTable(xf, "Machines", "quantity_required", "D86", "AA100", 2, "B"),
-        StandardTable(xf, "Machines", "rented_machinery", "D107", "AA109", 2, "B"),
-        StandardTable(xf, "Machines", "time_needed", "D114", "AA125", 2, "B"),
-        StandardTable(xf, "Machines", "min_needed", "D128", "AA139", 2, "B"),
+        StandardTable(xf, "Machines", "info", "D3", "AB27", 2, "B"),
+        StandardTable(xf, "Machines", "estimated_cost_breakdown", "D30", "AB36", 2, "B"),
+        StandardTable(xf, "Machines", "calcs", "D38", "AB56", 2, "B"),
+        StandardTable(xf, "Machines", "power_support", "D59", "AB64", 2, "B"),
+        StandardTable(xf, "Machines", "combined", "D67", "AB71", 2, "B"),
+        StandardTable(xf, "Machines", "used_on_vessel", "D74", "AB87", 2, "B"),
+        StandardTable(xf, "Machines", "quantity_required", "D90", "AB103", 2, "B"),
+        StandardTable(xf, "Machines", "rented_machinery", "D112", "AB114", 2, "B"),
+        StandardTable(xf, "Machines", "time_needed", "D119", "AB130", 2, "B"),
+        StandardTable(xf, "Machines", "min_needed", "D133", "AB144", 2, "B"),
         StandardTable(xf, "Equip&Mat Assumptions", "tasks", "B4", "BG47", 3, "H"),
         StandardTable(xf, "Equip&Mat Assumptions", "equipment", "C51", "AG69", 47, "C"),
         StandardTable(xf, "Equip&Mat Assumptions", "materials", "C73", "N90", 69, "C"),
@@ -2730,6 +2760,9 @@ function run(wb_in::XLConvert.ExcelWorkbook2)
         CellDependency("Structure Assumptions", "X76"),
         CellDependency("Machines", "B70"),
         CellDependency("Machines", "B86"),
+        CellDependency("Machines", "B74"),
+        CellDependency("Machines", "B90"),
+        CellDependency("Labor", "D5"),
     ]
     for stmt in statements
         set_cells = get_set_cells(stmt)
