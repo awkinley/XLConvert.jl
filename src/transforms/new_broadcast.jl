@@ -112,6 +112,7 @@ function filter_independent_chains(
         if length(chain) < min_chain_len
             if debug
                 println("A chain of length $(length(chain)) was skipped over for broadcasting")
+                @show [get_set_cells(statements[s])[1] for s in chain]
             end
             continue
         end
@@ -627,6 +628,8 @@ function split_broadcast_runs(ch::Chunk2D, ctx::BroadcastCtx)
 
             rows = @view coords[1, :, :]
             cols = @view coords[2, :, :]
+            # @display rows
+            # @display cols
 
             row_behavior = identify_broadcast_behavior(rows)
             col_behavior = identify_broadcast_behavior(cols)

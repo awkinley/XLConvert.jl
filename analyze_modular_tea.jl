@@ -191,20 +191,20 @@ function table_col_row_name_transform!(statements::AbstractArray{AbstractStateme
 
                     cell = XLConvert.cell_dep(XLConvert.TableRef(part))
                     if cell == row_name_cell
-                        println("Statement setting $(XLConvert.cell_dep(lhs)) had a row name region ref $cell")
+                        # println("Statement setting $(XLConvert.cell_dep(lhs)) had a row name region ref $cell")
                         expr.parts[i] = ExcelExpr(:row_name, Any[])
                     elseif cell == col_name_cell
-                        println("Statement setting $(XLConvert.cell_dep(lhs)) had a column name region ref $cell")
+                        # println("Statement setting $(XLConvert.cell_dep(lhs)) had a column name region ref $cell")
                         expr.parts[i] = ExcelExpr(:column_name, Any[])
                     end
                 end
                 ExcelExpr(:cell_ref, [cell_str, sheet]) => begin
                     cell = CellDependency(sheet, cell_str)
                     if cell == row_name_cell
-                        println("Statement setting $(XLConvert.cell_dep(lhs)) had a row name region ref $cell")
+                        # println("Statement setting $(XLConvert.cell_dep(lhs)) had a row name region ref $cell")
                         expr.parts[i] = ExcelExpr(:row_name, Any[])
                     elseif cell == col_name_cell
-                        println("Statement setting $(XLConvert.cell_dep(lhs)) had a column name region ref $cell")
+                        # println("Statement setting $(XLConvert.cell_dep(lhs)) had a column name region ref $cell")
                         expr.parts[i] = ExcelExpr(:column_name, Any[])
                     end
                 end
@@ -272,18 +272,6 @@ function XLConvert.handle(::EdgeCaseHandler, expr::ExcelExpr, exporter::PythonEx
                 ExcelExpr(:&, ["<=", val::ExcelExpr]) => "($test_val_str <= $(func(val)))"
                 val::ExcelExpr => begin
                     val_type = get_type(val, XLConvert.sheetname(ctx), exporter.cell_types, exporter.named_values)
-                    test_val_type = get_type(test_val, XLConvert.sheetname(ctx), exporter.cell_types, exporter.named_values)
-                    # @show test_val_type
-                    # test_has_string = if test_val_type isa Set
-                    #     @show typeof(test_val_type) test_val_type (String in test_val_type)
-                    #     # any(t -> t <: AbstractString, test_val_type)
-                    #     String in test_val_type
-                    # else
-                    #     test_val_type <: AbstractString || test_val_type == Any
-                    # end
-
-                    # @show val_type
-                    # @show val_type <: AbstractString
                     if val_type <: AbstractString || val.head in (:column_name, :row_name)
                         "xl.match_case_insensitive($(func(test_val)), $(func(val)))"
                     else get_type(test, XLConvert.sheetname(ctx), exporter.cell_types, exporter.named_values)
@@ -1457,7 +1445,7 @@ function test_lookup_const_propagate(wb::XLConvert.ExcelWorkbook2)
         WorkbookRegion("Anchor Sizing", "L2", "N2"),
         WorkbookRegion("Structure Calcs", "B6", "B47"),
         WorkbookRegion("Operations", "D3", "Q3"),
-        WorkbookRegion("Operations", "B45", "B48"),
+        # WorkbookRegion("Operations", "B45", "B48"),
         # WorkbookRegion("Operations", "C119", "C119"),
         # WorkbookRegion("Operations", "C138", "C138"),
         WorkbookRegion("Equip&Mat Assumptions", "E4", "E47"),
@@ -2011,6 +1999,7 @@ function make_operations_tables(xf)
         ("maintenance_dates", "D407", "E408", 336, "B"),
         ("vessel_days_used", "D411", "E422", 336, "B"),
         ("vessel_days_rented", "D425", "E436", 336, "B"),
+        ("total_costs", "R307", "R315", 306, "B"),
     ])
     add_tables!(tables, xf, "Operations", [
         ("month_info", "T109", "X132", 108),
@@ -2205,6 +2194,10 @@ function make_misc_tables(xf)
     ])
     add_tables!(tables, xf, "growth- cohort group 1", [
         ("growth", "B10", "BX157", 9),
+    ])
+
+    add_tables!(tables, xf, "Results", [
+        ("annual_cost_summary", "G3", "I16", 9, "F"),
     ])
 
     tables
@@ -2545,6 +2538,11 @@ function generate_statements(used_subset::XLConvert.ExcelWorkbook2, tables)
 
         println("-"^40)
         println("new broadcast")
+        println("-"^40)
+        @time statements = new_broadcast(statements, debug = false)
+
+        println("-"^40)
+        println("new broadcast again")
         println("-"^40)
         @time statements = new_broadcast(statements, debug = false)
 
