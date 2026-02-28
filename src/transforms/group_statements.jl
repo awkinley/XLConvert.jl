@@ -37,8 +37,8 @@ function try_smush_node(statements::Vector{AbstractStatement}, graph, topo_level
             end
         end
 
-        if length(level_nodes) > 2
-            debug && println("Breaking because there's more than two level nodes")
+        if length(level_nodes) > 1
+            debug && println("Breaking because there's more than one level nodes")
             break
         end
 

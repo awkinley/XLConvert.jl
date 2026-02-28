@@ -104,7 +104,8 @@ export CellDependency,
     handle,
     change_expr_part!,
     change_expr_part,
-    find_cycle
+    find_cycle,
+    lookup_const_propagate!
 
 
 
@@ -137,6 +138,7 @@ include("transforms/group_statements.jl")
 include("transforms/new_broadcast.jl")
 
 include("high_level_api.jl")
+include("constant_propagation.jl")
 
 
 end # module XLConvert
