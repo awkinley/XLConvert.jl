@@ -1841,11 +1841,17 @@ function make_dataframe_declaration(exporter::PythonExporter, wb::ExcelWorkbook,
     # line_str = "\t$lhs = pd.DataFrame({$(join(col_defs, ",\n\t"))})"
     cols_str = join(col_defs, ", ")
     as_str(val) = val isa AbstractString ? repr(val) : string(val)
-    index_str = join(as_str.(row_name.(Ref(table), 1:num_rows)), ", ")
+    row_names = row_name.(Ref(table), 1:num_rows)
+
+    index_str = if row_names == 1:length(row_names)
+        "range(1, $(length(row_names) + 1))"
+    else
+        "[" * join(as_str.(row_names), ", ") * "]"
+    end
     line_str = """\t$lhs = pd.DataFrame(
     \t\tnp.zeros(($num_rows, $num_cols), dtype=object),
     \t\tcolumns=[$cols_str],
-    \t\tindex=[$index_str],
+    \t\tindex=$index_str,
     \t)"""
     # line_str = "\t$lhs = Base.convert(Matrix{Any}, zeros($num_rows, $num_cols))"
 
@@ -1869,21 +1875,17 @@ function make_input_table_struct(exporter::JuliaExporter, wb::ExcelWorkbook, sta
     push!(lines, "function make_input_tables()")
 
     for table in tables
-        push!(lines, make_dataframe_declaration(exporter, wb, table))
-        # lhs = getname(table)
-        # num_rows, num_cols = size(table)
-        # col_names = [column_name(table, c) for c in 1:num_cols]
-        # # line_str = "\t$lhs = DataFrame(Base.convert(Matrix{Any}, zeros($num_rows, $num_cols)), [$(join(repr.(col_names), ", "))])"
-        # line_str = "\t$lhs = Base.convert(Matrix{Any}, zeros($num_rows, $num_cols))"
-        # push!(lines, line_str)
-        # write(output_file, line_str * "\n")
-    end
-    push!(lines, "")
 
-    for table in tables
+        top_left = CellDependency(table.sheet_name, startcol(table), startrow(table))
+        bottom_right = CellDependency(table.sheet_name, endcol(table), endrow(table))
+        push!(lines, "\t# Table $top_left:$bottom_right")
+        push!(lines, make_dataframe_declaration(exporter, wb, table))
+
         if !(table in keys(grouped_by_set_table))
+            println("Table $table is not set by anything")
             continue
         end
+
         group = grouped_by_set_table[table]
 
         sort!(group, by = s -> get_set_cells(s)[1])
@@ -1937,9 +1939,13 @@ function make_input_table_struct(exporter::JuliaExporter, wb::ExcelWorkbook, sta
         #     string = export_statement(exporter, wb, s)
         #     push!(lines, indent(rstrip(string), 1))
         # end
-
     end
     push!(lines, "")
+
+    # for table in tables
+
+    # end
+    # push!(lines, "")
 
     push!(lines, "\tTables(")
     for table in tables
@@ -1972,13 +1978,15 @@ function make_input_table_struct(exporter::PythonExporter, wb::ExcelWorkbook, st
     input_table_stmts = filter(s -> s isa TableStatement || s isa BroadcastedStatement, input_statements)
     grouped_by_set_table = group_to_dict(input_table_stmts, get_set_table)
     push!(lines, "def make_input_tables():")
+    cell_to_stmt = make_cell_to_statement_dict(input_table_stmts)
 
     for table in tables
+        top_left = CellDependency(table.sheet_name, startcol(table), startrow(table))
+        bottom_right = CellDependency(table.sheet_name, endcol(table), endrow(table))
+        push!(lines, "\t# Table $(table.sheet_name)!$(top_left.cell):$(bottom_right.cell)")
+
         push!(lines, make_dataframe_declaration(exporter, wb, table))
-    end
-    push!(lines, "")
 
-    for table in tables
         if !(table in keys(grouped_by_set_table))
             continue
         end
@@ -1996,60 +2004,90 @@ function make_input_table_struct(exporter::PythonExporter, wb::ExcelWorkbook, st
             @display group
         end
 
-        sets_single_cell_mask = num_set_cells.(group) .== 1
+        # sets_single_cell_mask = num_set_cells.(group) .== 1
 
-        for s in findall(.!sets_single_cell_mask)
-            if debug
-                @show group[s]
-            end
-            string = export_statement(exporter, wb, group[s])
-            push!(lines, indent(rstrip(string), 1))
-        end
-        row_nums = get_row_num.(group)[sets_single_cell_mask]
-        col_nums = get_col_num.(group)[sets_single_cell_mask]
+        # for s in findall(.!sets_single_cell_mask)
+        #     if debug
+        #         @show group[s]
+        #     end
+        #     string = export_statement(exporter, wb, group[s])
+        #     push!(lines, indent(rstrip(string), 1))
+        # end
+        set_cells = reduce(vcat, get_set_cells.(group))
+        row_nums = rownum.(set_cells)
+        col_nums = colnum.(set_cells)
+
+        # row_nums = get_row_num.(group)[sets_single_cell_mask]
+        # col_nums = get_col_num.(group)[sets_single_cell_mask]
 
 
         coords = zip(col_nums, row_nums) |> collect
-        coord_to_statement = Dict(c => s for (c, s) in zip(coords, group[sets_single_cell_mask]))
-        if debug
-            for (c, r) in coords
-                if row_name(table, r - startrow(table) + 1) == "Harvest: change out filled container"
-                    statement = coord_to_statement[(c, r)]
-                    # @show r c statement
-                end
-            end
-        end
+        coord_to_cell = Dict(c => cell for (c, cell) in zip(coords, set_cells))
+        # coord_to_statement = Dict(c => s for (c, s) in zip(coords, group[sets_single_cell_mask]))
+        # if debug
+        #     for (c, r) in coords
+        #         if row_name(table, r - startrow(table) + 1) == "Harvest: change out filled container"
+        #             statement = coord_to_statement[(c, r)]
+        #             # @show r c statement
+        #         end
+        #     end
+        # end
         regions = get_2d_regions(coords)
         for region in regions
             cols, rows = region
             region_coords = vec([(c, r) for c in cols, r in rows])
 
-            if length(region_coords) < 3
+            if length(region_coords) < 1
                 for c in region_coords
                     s = coord_to_statement[c]
                     string = export_statement(exporter, wb, s)
                     push!(lines, indent(rstrip(string), 1))
                 end
             else
-                region_statements = map(c -> coord_to_statement[c], region_coords)
+                # region_statements = map(c -> coord_to_statement[c], region_coords)
 
-                first_statement = region_statements[1]
+                # first_statement = region_statements[1]
 
+                cells = [coord_to_cell[(c, r)] for r in rows, c in cols]
+                first_statement = cell_to_stmt[cells[1, 1]]
                 lhs = convert_to_broadcasted(first_statement.lhs_expr, length(rows) - 1, length(cols) - 1)
-                # stmts = Matrix{AbstractStatement}(undef, length(rows), length(cols))
-                stmts = [coord_to_statement[(c, r)] for r in rows, c in cols]
-                convert_stmt(s::TableStatement) = convert(exporter, s.rhs_expr, table.sheet_name)
-                stmt_strs = convert_stmt.(stmts)
-                joined = if length(cols) > 1 && length(rows) > 1
-                    join(map(v -> string('[', join(v, ", "), ']'), eachrow(stmt_strs)), ", ")
-                else
-                    join(vec(stmt_strs), ", ")
+                if lhs.head == :broadcast_protect
+                    lhs = lhs.args[1]
                 end
+                # stmts = Matrix{AbstractStatement}(undef, length(rows), length(cols))
+                # stmts = [coord_to_statement[(c, r)] for r in rows, c in cols]
+
+                # convert_stmt(s::TableStatement) = convert(exporter, s.rhs_expr, table.sheet_name)
+                # stmt_strs = convert_stmt.(stmts)
+                # joined = if length(cols) > 1 && length(rows) > 1
+                #     join(map(v -> string('[', join(v, ", "), ']'), eachrow(stmt_strs)), ", ")
+                # else
+                #     join(vec(stmt_strs), ", ")
+                # end
                 # joined = join(map(v -> join(v, " "), eachrow(stmt_strs)), ";")
                 # joined = join(rhs_strings, ", ")
-                rhs_str = "[$joined]"
+                # rhs_str = "[$joined]"
                 lhs_str = convert(exporter, lhs, table.sheet_name)
-                str = "$lhs_str = $rhs_str"
+                # str = "$lhs_str = $rhs_str"
+                top_left = cells[1, 1]
+                bottom_right = cells[end, end]
+                tbl_rows = rows .- startrow(table) .+ 1
+                tbl_cols = cols .- startcol(table) .+ 1
+                # row_idx = if length(rows) == 1
+                #     repr(row_name(table, first(tbl_rows)))
+                # else
+                #     repr(row_name(table, first(tbl_rows))) * ":" * repr(row_name(table, last(tbl_rows)))
+                # end
+                row_idx = repr(row_name(table, first(tbl_rows))) * ":" * repr(row_name(table, last(tbl_rows)))
+                # col_idx = if length(cols) == 1
+                #     repr(column_name(table, first(tbl_cols)))
+                # else
+                #     repr(column_name(table, first(tbl_cols))) * ":" * repr(column_name(table, last(tbl_cols)))
+                # end
+                col_idx = repr(column_name(table, first(tbl_cols))) * ":" * repr(column_name(table, last(tbl_cols)))
+                lhs_str = "$(getname(table)).loc[$row_idx, $col_idx]"
+
+                str = "$lhs_str = xl.load_range(\"$(top_left.sheet_name)\", \"$(top_left.cell)\", \"$(bottom_right.cell)\")"
                 push!(lines, indent(str, 1))
             end
         end
@@ -2060,6 +2098,7 @@ function make_input_table_struct(exporter::PythonExporter, wb::ExcelWorkbook, st
         #     string = export_statement(exporter, wb, s)
         #     push!(lines, indent(rstrip(string), 1))
         # end
+        push!(lines, "")
 
     end
     push!(lines, "")
