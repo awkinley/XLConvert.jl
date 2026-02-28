@@ -34,10 +34,17 @@ end
 
 cell_parse_rgx = r"[$]?([A-Z]+)[$]?([0-9]+)"
 function offset(cell::CellDependency, rows::Int, cols::Int)
-    new_cell = offset_cell_str(cell.cell, rows, cols, false)
-    isnothing(new_cell) && return missing
+    # new_cell = offset_cell_str(cell.cell, rows, cols, false)
+    # isnothing(new_cell) && return missing
 
-    CellDependency(cell.sheet_name, new_cell)
+    # CellDependency(cell.sheet_name, new_cell)
+    new_col = cell.col + cols
+    new_row = cell.row + rows
+    if new_col < 1 || new_row < 1
+        return missing
+    end
+
+    CellDependency(cell.sheet_name, new_col, new_row)
     # cell_match = match(cell_parse_rgx, cell.cell)
     # @assert cell_match.match == cell.cell "Cell didn't parse properly"
     # col_str = cell_match[1]

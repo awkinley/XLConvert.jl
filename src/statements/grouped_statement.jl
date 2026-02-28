@@ -503,7 +503,19 @@ function export_looped(exporter::PythonExporter, wb::ExcelWorkbook, statements)
 
     custom_handler = CustomFuncParamHandler(get_param_str)
     custom_exporter = PythonExporter(exporter.wb, exporter.var_names, exporter.tables, exporter.named_values, [custom_handler, exporter.handlers...], exporter.cell_types)
-    rhs_str = convert(custom_exporter, rhs_expr, table.sheet_name)
+
+    r_name = if row_offset == 0
+        repr(row_name(table, first(row_idx)))
+    else
+        "$(getname(table)).index[$(row_str)]"
+    end
+    col_name = if col_offset == 0
+        repr(column_name(table, first(col_idx)))
+    else
+        "$(getname(table)).columns[$(col_str)]"
+    end
+    name_handler = ColRowNameHandler(r_name, col_name)
+    rhs_str = convert(with_handler(custom_exporter, name_handler), rhs_expr, table.sheet_name)
     """
     for i in range($(length(statements))):
     \t$lhs_str = $rhs_str

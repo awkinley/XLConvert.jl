@@ -137,6 +137,86 @@ function indirect_transform!(statements::AbstractArray{AbstractStatement})
     end
 end
 
+function table_col_row_name_transform!(statements::AbstractArray{AbstractStatement}, xf)
+    handled = Set{Int64}()
+
+    for s in statements
+        s isa XLConvert.TableStatement || continue
+
+        lhs = XLConvert.TableRef(s.lhs_expr)
+
+        if length(XLConvert.get_rows(lhs)) != 1 || length(XLConvert.get_cols(lhs)) != 1
+            continue
+        end
+
+        table = XLConvert.get_table(lhs)
+        row_name_region = XLConvert.row_name_region(table)
+        col_name_region = XLConvert.column_name_region(table)
+
+        expr = s.rhs_expr
+        if !(expr isa XLConvert.FlatExpr)
+            continue
+        end
+
+        row_name_cell = if isnothing(row_name_region)
+            nothing
+        elseif all(v -> isequal(v, true), XLConvert.get_cell_values(row_name_region, xf) .== XLConvert.get_row_names(table))
+            row_name_region[first(XLConvert.get_rows(lhs)), 1]
+        else
+            nothing
+        end
+        col_name_cell = if isnothing(col_name_region)
+            nothing
+        elseif all(v -> isequal(v, true), XLConvert.get_cell_values(col_name_region, xf) .== XLConvert.get_column_names(table))
+            col_name_region[1, first(XLConvert.get_cols(lhs))]
+        else
+            nothing
+        end
+
+        empty!(handled)
+
+        for (i, part) in enumerate(expr.parts)
+            i in handled && continue
+
+            @match part begin
+                ExcelExpr(:range, [lhs, rhs]) => begin
+                    # This is a pretty lazy way of trying to avoid ranges
+                    push!(handled, lhs.i)
+                    push!(handled, rhs.i)
+                end
+                ExcelExpr(:table_ref, [tbl, row_idx, col_idx, _, _]) => begin
+                    if length(row_idx) != 1 || length(col_idx) != 1
+                        @match_fail
+                    end
+
+                    cell = XLConvert.cell_dep(XLConvert.TableRef(part))
+                    if cell == row_name_cell
+                        println("Statement setting $(XLConvert.cell_dep(lhs)) had a row name region ref $cell")
+                        expr.parts[i] = ExcelExpr(:row_name, Any[])
+                    elseif cell == col_name_cell
+                        println("Statement setting $(XLConvert.cell_dep(lhs)) had a column name region ref $cell")
+                        expr.parts[i] = ExcelExpr(:column_name, Any[])
+                    end
+                end
+                ExcelExpr(:cell_ref, [cell_str, sheet]) => begin
+                    cell = CellDependency(sheet, cell_str)
+                    if cell == row_name_cell
+                        println("Statement setting $(XLConvert.cell_dep(lhs)) had a row name region ref $cell")
+                        expr.parts[i] = ExcelExpr(:row_name, Any[])
+                    elseif cell == col_name_cell
+                        println("Statement setting $(XLConvert.cell_dep(lhs)) had a column name region ref $cell")
+                        expr.parts[i] = ExcelExpr(:column_name, Any[])
+                    end
+                end
+                _ => continue
+            end
+
+        end
+
+
+    end
+end
+
 struct IndirectXlookupRangeHandler end
 
 function XLConvert.handle(::IndirectXlookupRangeHandler, expr::ExcelExpr, exporter::PythonExporter, ctx::XLConvert.PyExporterCtx)
@@ -192,11 +272,21 @@ function XLConvert.handle(::EdgeCaseHandler, expr::ExcelExpr, exporter::PythonEx
                 ExcelExpr(:&, ["<=", val::ExcelExpr]) => "($test_val_str <= $(func(val)))"
                 val::ExcelExpr => begin
                     val_type = get_type(val, XLConvert.sheetname(ctx), exporter.cell_types, exporter.named_values)
+                    test_val_type = get_type(test_val, XLConvert.sheetname(ctx), exporter.cell_types, exporter.named_values)
+                    # @show test_val_type
+                    # test_has_string = if test_val_type isa Set
+                    #     @show typeof(test_val_type) test_val_type (String in test_val_type)
+                    #     # any(t -> t <: AbstractString, test_val_type)
+                    #     String in test_val_type
+                    # else
+                    #     test_val_type <: AbstractString || test_val_type == Any
+                    # end
+
                     # @show val_type
                     # @show val_type <: AbstractString
-                    if val_type <: AbstractString
+                    if val_type <: AbstractString || val.head in (:column_name, :row_name)
                         "xl.match_case_insensitive($(func(test_val)), $(func(val)))"
-                    else
+                    else get_type(test, XLConvert.sheetname(ctx), exporter.cell_types, exporter.named_values)
                         "xl.as_array($test_val_str == $(func(val)))"
                     end
                 end
@@ -1903,9 +1993,12 @@ function make_operations_tables(xf)
         ("month_used_even_years", "D108", "Q119", 3, "B"),
         ("month_used_odd_years", "D122", "Q133", 3, "B"),
         ("crew_reqs", "D135", "Q136", 3, "B"),
-        ("vessel_A", "D139", "Q183", 138, "B"),
-        ("vessel_B", "D187", "Q231", 186, "B"),
-        ("vessel_C", "D234", "Q278", 233, "B"),
+        # ("vessel_A", "D139", "Q183", 138, "B"),
+        # ("vessel_B", "D187", "Q231", 186, "B"),
+        # ("vessel_C", "D234", "Q278", 233, "B"),
+        ("vessel_A", "D138", "Q183", 3, "B"),
+        ("vessel_B", "D186", "Q231", 3, "B"),
+        ("vessel_C", "D233", "Q278", 3, "B"),
         ("non_vessel_ops", "D281", "Q283", 3, "B"),
         ("num_employees_required", "D286", "Q294", 3, "B"),
         ("empoloyment_totals", "D296", "Q301", 3, "B"),
@@ -2089,7 +2182,7 @@ function make_misc_tables(xf)
         ("structural", "B9", "G47", 8, "B"),
     ])
     add_tables!(tables, xf, "Vessel_Library", [
-        ("library", "E6", "Q39", 3, "B"),
+        ("library", "D6", "Q39", 3, "B"),
         ("workable_wave_height", "E42", "Q42", 41, "B"),
         ("weather_day_portion", "E43", "Q54", 41, "B"),
     ])
@@ -2448,6 +2541,7 @@ function generate_statements(used_subset::XLConvert.ExcelWorkbook2, tables)
         table_stmts = filter(s -> s isa XLConvert.TableStatement, statements)
         @show length(table_stmts)
         # return statements
+        @time "table_col_row_name_transform" table_col_row_name_transform!(statements, used_subset.xf)
 
         println("-"^40)
         println("new broadcast")
@@ -2918,7 +3012,7 @@ function export_statements(used_subset::XLConvert.ExcelWorkbook2, statements, ta
     statements, exporter
 end
 
-function run(wb_in::XLConvert.ExcelWorkbook2)
+function get_statements_and_tables(wb_in::XLConvert.ExcelWorkbook2)
     wb = wb_in
     xf = wb.xf
 
@@ -3067,7 +3161,15 @@ function run(wb_in::XLConvert.ExcelWorkbook2)
         end
     end
 
+    statements, tables
+end
 
+function run(wb_in::XLConvert.ExcelWorkbook2)
+    wb = wb_in
+    xf = wb.xf
+
+    used_subset = wb
+    statements, tables = get_statements_and_tables(wb_in)
 
     export_statements(used_subset, statements, tables)
 

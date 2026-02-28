@@ -16,6 +16,11 @@ function cells(region::WorkbookRegion)
     [CellDependency(sheet, c, r) for c in start_c:end_c, r in start_r:end_r]
 end
 
+function Base.getindex(region::WorkbookRegion, row::Integer, col::Integer)
+    @assert all((row, col) .<= size(region))
+
+    offset(region.first, row - 1, col - 1)
+end
 """
 (start_column, start_row) of the range
 """
@@ -56,4 +61,8 @@ function Base.show(io::IO, region::WorkbookRegion)
     else
         print(io, "WorkbookRegion($(region.first):$(region.last)")
     end
+end
+
+function get_cell_values(region::WorkbookRegion, xf)
+    xf[region.first.sheet_name][string(region.first.cell, ":", region.last.cell)]
 end

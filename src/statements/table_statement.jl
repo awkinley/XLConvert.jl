@@ -33,15 +33,10 @@ function table_ref_transform!(statements::Vector{AbstractStatement}, tables::Vec
         end
         @assert s isa StandardStatement
 
-        set_cells = get_set_cells(s)
-        lhs_cell = set_cells[1]
-        sheet = lhs_cell.sheet_name
-
-        s.rhs_expr = insert_table_refs(s.rhs_expr, tables)
-
         lhs = s.assigned_var
-        lhs_expr = ExcelExpr(:cell_ref, lhs.cell, sheet)
+        lhs_expr = ExcelExpr(:cell_ref, lhs.cell, lhs.sheet_name)
         lhs_expr = insert_table_refs(lhs_expr, tables)
+        s.rhs_expr = insert_table_refs(s.rhs_expr, tables)
 
         if lhs_expr.head == :table_ref
             statements[i] = TableStatement(lhs_expr, [lhs], s.rhs_expr, s.rhs_dependencies, false)
@@ -384,8 +379,9 @@ function export_statement(exporter::PythonExporter, wb::ExcelWorkbook, statement
         if !ismissing(table) && !ismissing(lhs_row_idx)
             row_str = "Row: $(row_name(table, lhs_row_idx))"
         end
+        name_handler = ColRowNameHandler(repr(row_name(table, first(lhs_row_idx))), repr(column_name(table, first(lhs_col_idx))))
         rhs = try
-            convert(exporter, expr, sheet)
+            convert(with_handler(exporter, name_handler), expr, sheet)
         catch e
             println("Failed to convert table rhs expr")
             @show statement.assigned_vars

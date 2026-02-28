@@ -108,12 +108,16 @@ function region(table::ExcelTable)
 end
 
 function column_name_region(table::ExcelTable)
+    if ismissing(table.column_names_range) || isempty(table.column_names_range)
+        return nothing
+    end
+
     first, last = split(table.column_names_range, ":")
     WorkbookRegion(table.sheet_name, first, last)
 end
 
 function row_name_region(table::ExcelTable)
-    if ismissing(table.row_names_range)
+    if ismissing(table.row_names_range) || isempty(table.row_names_range)
         return nothing
     end
 

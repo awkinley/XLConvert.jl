@@ -7,11 +7,29 @@ struct PythonExporter
     cell_types::Any
 end
 
+function with_handler(exporter::PythonExporter, new_handler)
+    PythonExporter(exporter.wb, exporter.var_names, exporter.tables, exporter.named_values, [new_handler, exporter.handlers...], exporter.cell_types)
+end
+
+
+
 
 function handle(handler::AbstractHandler, expr, exporter::PythonExporter, ctx)
     missing
 end
 
+struct ColRowNameHandler <: AbstractHandler
+    row_name::String
+    column_name::String
+end
+
+function handle(handler::ColRowNameHandler, expr, exporter::PythonExporter, ctx)
+    @match expr begin
+        ExcelExpr(:column_name, []) => handler.column_name
+        ExcelExpr(:row_name, []) => handler.row_name
+        _ => missing
+    end
+end
 
 is_number_type(exporter::PythonExporter, expr, ctx) = get_type(expr, sheetname(ctx), exporter.cell_types, exporter.named_values) == Float64
 

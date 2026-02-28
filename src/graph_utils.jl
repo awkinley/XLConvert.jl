@@ -55,7 +55,7 @@ Returns:
   repeated at the end), or
 - `nothing` if the graph is acyclic.
 """
-function find_cycle(g::SimpleDiGraph)
+function find_cycle(g::Graphs.SimpleDiGraph{T}) where {T<:Integer}
     n = nv(g)
     visited = falses(n)
     on_stack = falses(n)

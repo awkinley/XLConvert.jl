@@ -38,6 +38,13 @@ get_table(t::TableRef) = t.table
 get_rows(t::TableRef) = t.row
 get_cols(t::TableRef) = t.col
 
+function cell_dep(t::TableRef)
+    @assert length(t.row) == 1 && length(t.col) == 1
+
+    tbl = t.table
+    CellDependency(tbl.sheet_name, startcol(tbl) + first(t.col) - 1, startrow(tbl) + first(t.row) - 1)
+end
+
 function TableRef(expr::ExcelExpr)
     @match expr begin
         ExcelExpr(:table_ref, [table, row_idx, col_idx, _, _]) => TableRef(table, row_idx, col_idx)
@@ -577,7 +584,8 @@ function export_statement(exporter::PythonExporter, wb::ExcelWorkbook, statement
     lhs_col_str = num_cols == 1 ? repr(column_name(table, first(lhs_col_idx))) : "col"
     lhs = getname(table) * ".loc[$lhs_row_str, $lhs_col_str]"
 
-    rhs = convert(custom_exporter, base_expr, table.sheet_name)
+    name_handler = ColRowNameHandler(lhs_row_str, lhs_col_str)
+    rhs = convert(with_handler(custom_exporter, name_handler), base_expr, table.sheet_name)
     wrap_na_to_zero = false
     if base_expr.parts[1].head == :table_ref
         wrap_na_to_zero = true
