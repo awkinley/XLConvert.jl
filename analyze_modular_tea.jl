@@ -50,41 +50,82 @@ function if_one_zero_transform!(statements::AbstractArray{AbstractStatement})
     end
 end
 
+convert_average_two_cell_range!(expr) = expr
+function convert_average_two_cell_range!(expr::XLConvert.FlatExpr)
+    did_work = false
+    for (i, part) in enumerate(expr.parts)
+        @flat_match expr part begin
+            ExcelExpr(:call, ["AVERAGE", ExcelExpr(:range, [ExcelExpr(:cell_ref, [lhs, sheet]), ExcelExpr(:cell_ref, [rhs, sheet])])]) => begin
+                region = WorkbookRegion(sheet, lhs, rhs)
+                if prod(size(region)) != 2
+                    @match_fail
+                end
+                # Don't match if the average is the whole expression, since it might be a date thing
+                if i == 1
+                    @match_fail
+                end
+                range_i = part.args[2]
+
+                # @show sheet lhs rhs
+                expr.parts[i] = ExcelExpr(:/, range_i, 2)
+                expr.parts[range_i.i] = ExcelExpr(:+, expr.parts[range_i.i].args)
+                did_work = true
+            end
+            _ => continue
+        end
+    end
+
+    if did_work
+        # @display expr
+        expr = XLConvert.convert_to_flat_expr(XLConvert.convert_to_expr(expr))
+        # @display expr
+    end
+
+    expr
+end
+
+function average_two_cell_range_transform!(statements::AbstractArray{AbstractStatement})
+    for s in statements
+        XLConvert.apply_expr_transform!(s, (_, expr) -> convert_average_two_cell_range!(expr))
+    end
+end
+
 convert_indirects!(expr) = expr
 function convert_indirects!(expr::FlatExpr)
     for (i, part) in enumerate(expr.parts)
         @flat_match expr part begin
-
-            ExcelExpr(
-                :range,
-                [
-                    ExcelExpr(:table_ref, range_left_args),
-                    ExcelExpr(
-                        :call,
-                        ["INDIRECT", ExcelExpr(:call, ["ADDRESS",
-                            ExcelExpr(:call, ["ROW", ExcelExpr(:table_ref, row_args)]),
-                            ExcelExpr(:-, [ExcelExpr(:+, [ExcelExpr(:call, ["COLUMN", ExcelExpr(:table_ref, col_args)]), add_rhs]), sub_rhs]),
-                            # indirect_column,
-                        ])],
-                    ),
-                ],
-            ) => begin
-
-                if range_left_args == row_args && range_left_args == col_args
-                    @show range_left_args row_args col_args add_rhs sub_rhs
+            ExcelExpr(:call, [
+                "AVERAGE", 
+                ExcelExpr(:range, [
+                    ExcelExpr(:call, [
+                        "INDIRECT", 
+                        ExcelExpr(:call, [
+                            "CELL",
+                            "address",
+                            ExcelExpr(:call, ["_xlfn.XLOOKUP", lhs_value, lhs_refs, lhs_value_range]),
+                        ])
+                    ]),
+                    ExcelExpr(:call, [
+                        "INDIRECT", 
+                        ExcelExpr(:call, [
+                            "CELL",
+                            "address",
+                            ExcelExpr(:call, ["_xlfn.XLOOKUP", rhs_value, rhs_refs, rhs_value_range]),
+                        ])
+                    ])
+                ])
+            ]) => begin
+                if expr.parts[lhs_refs.i] != expr.parts[rhs_refs.i] || expr.parts[lhs_value_range.i] != expr.parts[rhs_value_range.i]
+                    @match_fail
                 end
 
+                new_part = ExcelExpr(:call, "AVERAGEIFS", lhs_value_range, lhs_refs, ExcelExpr(:&, ">=", lhs_value), rhs_refs, ExcelExpr(:&, "<=", rhs_value))
+                # @display expr
+                # @display change_expr_part(expr, i, new_part)
+                change_expr_part!(expr, i, new_part)
             end
-            # ExcelExpr(:call, ["IF", ExcelExpr(:eq, [a, b]), 1, 0]) => begin
-            #     # println("Convert if one zero found something!")
-            #     # @display expr
-            #     expr.parts[i] = ExcelExpr(:eq, a, b)
-            # end
             _ => continue
         end
-        # if @ismatch part ExcelExpr(:eq, [FlatIdx(idx), ""])
-        #     expr.parts[i] = ExcelExpr(:call, Any["ISBLANK", FlatIdx(idx)])
-        # end
     end
 
     expr
@@ -130,21 +171,8 @@ function XLConvert.handle(::EdgeCaseHandler, expr::ExcelExpr, exporter::PythonEx
         for i in 1:(length(args)÷2)
             test_val = args[2*i-1]
             test_val_str = func(test_val)
-            # test_val_str = @match test_val begin
-            #     ExcelExpr(:table_ref, [table, row_ref, col_ref, _, _]) where size(table)[1] == 1 => begin
-
-            #         if length(col_ref) == size(table)[2]
-            #             "$(getname(table)).iloc[0, :]"
-            #         else
-            #             col_name = [string(column_name(table, c)) for c in col_idx]
-            #             col_idx = "$(repr(col_name[begin])):$(repr(col_name[end]))"
-            #             first_row = row_name(table, 1)
-            #             "$(getname(table)).loc[$first_row, $cold_idx]"
-            #         end
-            #     end
-            #     _ => func(test_val)
-            # end
             test = args[2*i]
+
             cond = @match test begin
                 "<>#N/A" => "~pd.isna($(func(test_val)))"
                 "<>FALSE" => "($(func(test_val)) != False)"
@@ -160,6 +188,8 @@ function XLConvert.handle(::EdgeCaseHandler, expr::ExcelExpr, exporter::PythonEx
                 end
                 ExcelExpr(:&, [">", val::ExcelExpr]) => "($test_val_str > $(func(val)))"
                 ExcelExpr(:&, ["<", val::ExcelExpr]) => "($test_val_str < $(func(val)))"
+                ExcelExpr(:&, [">=", val::ExcelExpr]) => "($test_val_str >= $(func(val)))"
+                ExcelExpr(:&, ["<=", val::ExcelExpr]) => "($test_val_str <= $(func(val)))"
                 val::ExcelExpr => begin
                     val_type = get_type(val, XLConvert.sheetname(ctx), exporter.cell_types, exporter.named_values)
                     # @show val_type
@@ -711,64 +741,6 @@ function number_of_paths(graph, source, destination)
     end
 
     dp[source]
-end
-
-"""
-    find_cycle(g::SimpleDiGraph)
-
-Search for a directed cycle in `g`.
-
-Returns:
-- A vector of vertex indices representing a cycle (with the first vertex
-  repeated at the end), or
-- `nothing` if the graph is acyclic.
-"""
-function find_cycle(g::SimpleDiGraph)
-    n = nv(g)
-    visited = falses(n)
-    on_stack = falses(n)
-    parent = fill(0, n)
-
-    cycle = nothing
-
-    function dfs(u)
-        visited[u] = true
-        on_stack[u] = true
-
-        for v in outneighbors(g, u)
-            if cycle !== nothing
-                return
-            elseif !visited[v]
-                parent[v] = u
-                dfs(v)
-            elseif on_stack[v]
-                # Found a back edge u -> v, reconstruct cycle
-                path = [v]
-                cur = u
-                while cur != v
-                    push!(path, cur)
-                    cur = parent[cur]
-                end
-                push!(path, v)   # close the cycle
-                reverse!(path)
-                cycle = path
-                return
-            end
-        end
-
-        on_stack[u] = false
-    end
-
-    for v in 1:n
-        if !visited[v]
-            dfs(v)
-            if cycle !== nothing
-                return cycle
-            end
-        end
-    end
-
-    return nothing
 end
 
 function param_to_cell(wb::XLConvert.ExcelWorkbook2, param)
@@ -1796,6 +1768,355 @@ function StandardTable(xf, sheet, name, top_left, bottom_right, column_name_row)
     DefTable(xf, sheet, name, top_left, bottom_right, "$(column_start.cell):$(column_end.cell)", "")
 end
 
+function split_range(range_ref::AbstractString)
+    start_ref, end_ref = string.(split(range_ref, ":", limit = 2))
+    start_ref, end_ref
+end
+
+function NameRangeTable(xf, sheet, name, range_ref::AbstractString)
+    top_left, bottom_right = split_range(range_ref)
+    DefTable(xf, sheet, name, top_left, bottom_right, "", "")
+end
+
+function ColumnNamesTable(xf, source::ExcelTable, name)
+    isempty(source.column_names_range) && error("Table $(getname(source)) has no column names range")
+    top_left, bottom_right = split_range(source.column_names_range)
+    DefTable(xf, source.sheet_name, name, top_left, bottom_right, string(top_left, ":", bottom_right), "")
+end
+
+function RowNamesTable(xf, source::ExcelTable, name)
+    if ismissing(source.row_names_range) || isempty(source.row_names_range)
+        error("Table $(getname(source)) has no row names range")
+    end
+    top_left, bottom_right = split_range(source.row_names_range)
+    DefTable(xf, source.sheet_name, name, top_left, bottom_right, string(top_left, ":", top_left), string(top_left, ":", bottom_right))
+end
+
+function table_by_name(tables, table_name::AbstractString)
+    idx = findfirst(t -> t.table_name == table_name, tables)
+    isnothing(idx) && error("Table \"$table_name\" was not found")
+    tables[idx]
+end
+
+function add_table!(tables, xf, sheet, spec::Tuple{AbstractString, AbstractString, AbstractString, Integer})
+    name, top_left, bottom_right, column_name_row = spec
+    push!(tables, StandardTable(xf, sheet, name, top_left, bottom_right, column_name_row))
+end
+
+function add_table!(tables, xf, sheet, spec::Tuple{AbstractString, AbstractString, AbstractString, Integer, AbstractString})
+    name, top_left, bottom_right, column_name_row, row_name_col = spec
+    push!(tables, StandardTable(xf, sheet, name, top_left, bottom_right, column_name_row, row_name_col))
+end
+
+function add_table!(tables, xf, sheet, spec::Tuple{AbstractString, AbstractString, AbstractString, AbstractString, AbstractString})
+    name, top_left, bottom_right, column_names_range, row_names_range = spec
+    push!(tables, DefTable(xf, sheet, name, top_left, bottom_right, column_names_range, row_names_range))
+end
+
+function add_tables!(tables, xf, sheet, specs)
+    for spec in specs
+        add_table!(tables, xf, sheet, spec)
+    end
+end
+
+function add_row_names_table!(tables, xf, source_table_name::AbstractString, new_table_name::AbstractString)
+    push!(tables, RowNamesTable(xf, table_by_name(tables, source_table_name), new_table_name))
+end
+
+function add_column_names_table!(tables, xf, source_table_name::AbstractString, new_table_name::AbstractString)
+    push!(tables, ColumnNamesTable(xf, table_by_name(tables, source_table_name), new_table_name))
+end
+
+function make_vessels_tables(xf)
+    tables = ExcelTable[]
+
+    add_tables!(tables, xf, "vessels", [
+        ("vsl_choices", "F14", "T43", 4, "B"),
+    ])
+    add_tables!(tables, xf, "vessels", [
+        ("type_info", "F5", "T9", 4, "B"),
+        ("from_library", "F103", "T122", 6, "B"),
+        ("intermediate_res", "F145", "T151", 6, "B"),
+        ("recorded_results", "F61", "T99", 4, "B"),
+    ])
+
+    tables
+end
+
+function make_structure_calcs_tables(xf)
+    tables = ExcelTable[]
+
+    add_tables!(tables, xf, "Structure Calcs", [
+        ("tasks", "CN4", "FH4", 4),
+        ("component_calc", "B6", "CG47", 4, "B"),
+        ("component_vessel_task_times", "CN6", "FH47", 4, "CM"),
+        ("component_deck_hand_time", "CN51", "FH92", 4, "CM"),
+        ("component_task_quantity", "CN100", "FH141", 4, "CM"),
+        ("component_task_annual_vsl_time", "CN149", "FH190", 4, "CM"),
+        ("component_task_annual_deck_hand_time", "CN197", "FH238", 4, "CM"),
+        ("monthly_machine_use", "CN251", "FH262", 4, "CM"),
+        ("task_location", "CN242", "FO242", 4),
+        ("task_operation", "CN243", "FO243", 4),
+        ("task_vessel", "CN244", "FO244", 4),
+    ])
+    add_tables!(tables, xf, "Structure Calcs", [
+        ("vssl_A_hours", "C55", "F68", 54, "B"),
+        ("vssl_B_hours", "C75", "F88", 74, "B"),
+        ("vssl_C_hours", "C95", "F108", 94, "B"),
+        ("vssl_A_deck_hand_hours", "H55", "K68", 54, "B"),
+        ("vssl_B_deck_hand_hours", "H75", "K88", 74, "B"),
+        ("vssl_C_deck_hand_hours", "H95", "K108", 94, "B"),
+        ("machine_hours", "C114", "F127", 113, "B"),
+        ("machine_deck_hand_hours", "H114", "K127", 113, "B"),
+    ])
+    add_row_names_table!(tables, xf, "vssl_A_hours", "vssl_A_ops")
+    add_row_names_table!(tables, xf, "vssl_B_hours", "vssl_B_ops")
+    add_row_names_table!(tables, xf, "vssl_C_hours", "vssl_C_ops")
+    add_row_names_table!(tables, xf, "machine_hours", "machine_hours_rows")
+    add_column_names_table!(tables, xf, "vssl_A_hours", "vssl_A_hours_loc")
+    add_column_names_table!(tables, xf, "vssl_B_hours", "vssl_B_hours_loc")
+    add_column_names_table!(tables, xf, "vssl_C_hours", "vssl_C_hours_loc")
+    add_column_names_table!(tables, xf, "machine_hours", "machine_hours_loc")
+    add_column_names_table!(tables, xf, "vssl_A_deck_hand_hours", "vssl_A_deck_hand_loc")
+    add_column_names_table!(tables, xf, "vssl_B_deck_hand_hours", "vssl_B_deck_hand_loc")
+    add_column_names_table!(tables, xf, "vssl_C_deck_hand_hours", "vssl_C_deck_hand_loc")
+    add_column_names_table!(tables, xf, "machine_deck_hand_hours", "machine_deck_hand_hours_loc")
+
+    tables
+end
+
+function make_operations_tables(xf)
+    tables = ExcelTable[]
+
+    add_tables!(tables, xf, "Operations", [
+        ("vessel_inputs", "D4", "Q18", 3, "B"),
+        ("vsl_A_annual_time", "D45", "Q48", 3, "B"),
+        ("vsl_B_annual_time", "D51", "Q54", 3, "B"),
+        ("vsl_C_annual_time", "D57", "Q60", 3, "B"),
+        ("vsl_A_deck_hand_annual", "D64", "Q67", 3, "B"),
+        ("vsl_B_deck_hand_annual", "D70", "Q73", 3, "B"),
+        ("vsl_C_deck_hand_annual", "D76", "Q79", 3, "B"),
+        ("non_vessel_deck_hand_annual_requirements", "D82", "Q85", 3, "B"),
+        ("dates", "D87", "Q88", 3, "B"),
+        ("work_hours_per_day", "D90", "Q90", 3, "B"),
+        ("capacity_per_month", "D93", "Q104", 3, "B"),
+        ("month_used_even_years", "D108", "Q119", 3, "B"),
+        ("month_used_odd_years", "D122", "Q133", 3, "B"),
+        ("crew_reqs", "D135", "Q136", 3, "B"),
+        ("vessel_A", "D139", "Q183", 138, "B"),
+        ("vessel_B", "D187", "Q231", 186, "B"),
+        ("vessel_C", "D234", "Q278", 233, "B"),
+        ("non_vessel_ops", "D281", "Q283", 3, "B"),
+        ("num_employees_required", "D286", "Q294", 3, "B"),
+        ("empoloyment_totals", "D296", "Q301", 3, "B"),
+        ("financing_mult", "D304", "Z304", 3, "B"),
+        ("vessel_months_needed", "D343", "E354", 336, "B"),
+        # ("min_vessels_required", "D357", "E372", 336, "B"),
+        ("min_vessels_required", "D357", "E368", 336, "B"),
+        ("vessels_required", "D372", "E372", 336, "B"),
+        ("weather_day_portion", "D394", "E405", 336, "B"),
+        ("maintenance_dates", "D407", "E408", 336, "B"),
+        ("vessel_days_used", "D411", "E422", 336, "B"),
+        ("vessel_days_rented", "D425", "E436", 336, "B"),
+    ])
+    add_tables!(tables, xf, "Operations", [
+        ("month_info", "T109", "X132", 108),
+    ])
+    add_row_names_table!(tables, xf, "month_used_even_years", "even_years_months")
+    add_row_names_table!(tables, xf, "month_used_odd_years", "odd_years_months")
+    add_row_names_table!(tables, xf, "vessel_days_rented", "vessel_days_rented_rows")
+    add_row_names_table!(tables, xf, "vsl_A_annual_time", "vsl_A_annual_time_rows")
+    add_row_names_table!(tables, xf, "vsl_B_annual_time", "vsl_B_annual_time_rows")
+    add_row_names_table!(tables, xf, "vsl_C_annual_time", "vsl_C_annual_time_rows")
+    add_row_names_table!(tables, xf, "vsl_A_deck_hand_annual", "vsl_A_deck_hand_annual_rows")
+    add_row_names_table!(tables, xf, "vsl_B_deck_hand_annual", "vsl_B_deck_hand_annual_rows")
+    add_row_names_table!(tables, xf, "vsl_C_deck_hand_annual", "vsl_C_deck_hand_annual_rows")
+    add_row_names_table!(tables, xf, "vessel_days_used", "vessel_days_used_rows")
+    add_column_names_table!(tables, xf, "vessel_A", "vessel_A_cols")
+    add_column_names_table!(tables, xf, "vessel_B", "vessel_B_col")
+    add_column_names_table!(tables, xf, "vessel_C", "vessel_C_col")
+
+    tables
+end
+
+function make_structure_assumptions_tables(xf)
+    tables = ExcelTable[]
+
+    add_tables!(tables, xf, "Structure Assumptions", [
+        ("task_settings", "B3", "BA73", 2, "F"),
+    ])
+    add_tables!(tables, xf, "Structure Assumptions", [
+        ("assembly", "D77", "AH100", 76, "C"),
+    ])
+
+    tables
+end
+
+function make_growth_and_site_tables(xf)
+    tables = ExcelTable[]
+
+    add_tables!(tables, xf, "growth model", [
+        ("growth_curve", "B21", "G274", 18),
+        ("harvest_period", "H21", "Y117", 18),
+    ])
+    add_tables!(tables, xf, "Site Inputs", [
+        ("weather_days", "C68", "AD88", 67),
+        ("sig_wave_height", "B21", "Q59", 20),
+        ("oyster_site", "C103", "P2677", 101),
+    ])
+    add_tables!(tables, xf, "Site Inputs", [
+        ("vessel_weather_days", "AA21", "AF32", 20, "AA"),
+        ("oyster_site_params", "L95", "P98", 101, "K"),
+    ])
+
+    tables
+end
+
+function make_machines_tables(xf)
+    tables = ExcelTable[]
+    table_names = [
+        ("info", "D3", "AB27"),
+        ("estimated_cost_breakdown", "D30", "AB36"),
+        ("calcs", "D38", "AB56"),
+        ("power_support", "D59", "AB64"),
+        ("combined", "D67", "AB71"),
+        ("used_on_vessel", "D74", "AB87"),
+        ("quantity_required", "D90", "AB103"),
+        ("num_required_in_year", "D104", "AB104"),
+        ("rented_machinery", "D112", "AB114"),
+        ("time_needed", "D119", "AB130"),
+        ("min_needed", "D133", "AB144"),
+    ]
+    add_tables!(tables, xf, "Machines", [(name, top_left, bottom_right, 2, "B") for (name, top_left, bottom_right) in table_names])
+
+    for name in first.(table_names)
+        add_row_names_table!(tables, xf, name, "$(name)_rows")
+    end
+
+    tables
+end
+
+function make_equip_mat_tables(xf)
+    tables = ExcelTable[]
+
+    add_tables!(tables, xf, "Equip&Mat Assumptions", [
+        ("tasks", "B4", "BG47", 3, "H"),
+        ("equipment", "C51", "AG69", 47, "C"),
+        ("materials", "C73", "N90", 69, "C"),
+    ])
+
+    add_tables!(tables, xf, "Equip&Mat Calcs", [
+        ("tasks", "W2", "BN2", 2),
+    ])
+    add_tables!(tables, xf, "Equip&Mat Calcs", [
+        ("vssl_or_machine_time", "W4", "BN34", 2, "B"),
+        ("deck_hand_time", "W38", "BN66", 2, "U"),
+        ("monthly_machine_use", "W77", "BN88", 2, "V"),
+        ("task_location", "W69", "BU69", 2),
+        ("task_operation", "W70", "BU70", 2),
+        ("task_vessel", "W71", "BU71", 2),
+        ("task_machine", "W73", "BU73", 2),
+        ("equipment", "B4", "N34", 2, "B"),
+    ])
+    add_tables!(tables, xf, "Equip&Mat Calcs", [
+        ("per_item_names", "K2", "N2", 2),
+    ])
+    add_tables!(tables, xf, "Equip&Mat Calcs", [
+        ("vssl_A_hours", "D120", "G133", 119, "B"),
+        ("vssl_B_hours", "D139", "G152", 138, "B"),
+        ("vssl_C_hours", "D157", "G170", 156, "B"),
+    ])
+    add_tables!(tables, xf, "Equip&Mat Calcs", [
+        ("non_vssl_hours", "D175", "G188", 174),
+        ("non_vssl_hours_loc", "D174", "G174", 174),
+    ])
+    add_row_names_table!(tables, xf, "vssl_A_hours", "vssl_A_ops")
+    add_row_names_table!(tables, xf, "vssl_B_hours", "vssl_B_ops")
+    add_row_names_table!(tables, xf, "vssl_C_hours", "vssl_C_ops")
+    add_column_names_table!(tables, xf, "vssl_A_hours", "vssl_A_hours_loc")
+    add_column_names_table!(tables, xf, "vssl_B_hours", "vssl_B_hours_loc")
+    add_column_names_table!(tables, xf, "vssl_C_hours", "vssl_C_hours_loc")
+
+    add_tables!(tables, xf, "Equip&Mat Calcs", [
+        ("deck_hand_vssl_A_hours", "K120", "N133", 119, "B"),
+    ])
+    add_tables!(tables, xf, "Equip&Mat Calcs", [
+        ("deck_hand_vssl_A_hours_loc", "K119", "N119", 119),
+    ])
+    add_tables!(tables, xf, "Equip&Mat Calcs", [
+        ("deck_hand_vssl_B_hours", "K139", "N152", 138, "B"),
+    ])
+    add_tables!(tables, xf, "Equip&Mat Calcs", [
+        ("deck_hand_vssl_B_hours_loc", "K138", "N138", 138),
+    ])
+    add_tables!(tables, xf, "Equip&Mat Calcs", [
+        ("deck_hand_vssl_C_hours", "K157", "N170", 156, "B"),
+    ])
+    add_tables!(tables, xf, "Equip&Mat Calcs", [
+        ("deck_hand_vssl_C_hours_loc", "K156", "N156", 156),
+        ("deck_hand_non_vssl_hours", "K175", "N188", 174),
+        ("deck_hand_non_vssl_hours_loc", "K174", "N174", 174),
+    ])
+
+    tables
+end
+
+function make_labor_tables(xf)
+    tables = ExcelTable[]
+
+    add_tables!(tables, xf, "Labor", [
+        ("inputs", "D6", "L10", 5, "B"),
+        ("required_per_month", "D13", "L24", 5, "B"),
+        ("monthly_overtime", "D27", "L38", 5, "B"),
+        ("totals", "D40", "L46", 5, "B"),
+    ])
+
+
+    tables
+end
+
+function make_misc_tables(xf)
+    tables = ExcelTable[]
+
+    add_tables!(tables, xf, "3. Seed", [
+        ("annual_energy", "AE4", "AI10", 3, "AD"),
+        ("capex", "AO4", "BI30", 3, "AM"),
+    ])
+    add_tables!(tables, xf, "oyster gear", [
+        ("gear", "B5", "AB28", 3),
+    ])
+    add_tables!(tables, xf, "KAM Results", [
+        ("structural", "B9", "G47", 8, "B"),
+    ])
+    add_tables!(tables, xf, "Vessel_Library", [
+        ("library", "E6", "Q39", 3, "B"),
+        ("workable_wave_height", "E42", "Q42", 41, "B"),
+        ("weather_day_portion", "E43", "Q54", 41, "B"),
+    ])
+    add_tables!(tables, xf, "standard tasks", [
+        ("structure_related", "B3", "AX66", 2, "F"),
+        ("equip_related", "B70", "Z143", 2, "F"),
+        ("equip_flags", "AA70", "BC143", 69),
+    ])
+    add_tables!(tables, xf, "material properties", [
+        ("props", "C3", "W37", 2, "B"),
+    ])
+    add_tables!(tables, xf, "Anchor Sizing", [
+        ("anchors", "L3", "N44", 2, "J"),
+        ("deployment", "C58", "D60", 57, "C"),
+        ("sediment_type", "C63", "F66", 62, "C"),
+    ])
+    add_tables!(tables, xf, "Anchor Sizing", [
+        ("k_soils", "J82", "M82", 82),
+        ("a_soils", "D82", "H82", 82),
+    ])
+    add_tables!(tables, xf, "growth- cohort group 1", [
+        ("growth", "B10", "BX157", 9),
+    ])
+
+    tables
+end
+
 function fix_indirect!(wb::XLConvert.ExcelWorkbook2, expr_in::XLConvert.FlatExpr; debug::Bool = false)
     expr = copy(expr_in)
     region_a = WorkbookRegion("Structure Assumptions", "I77", "I100")
@@ -1975,14 +2296,15 @@ function get_subset(wb_in::XLConvert.ExcelWorkbook2)
 
     # target_output = CellDependency("vessels", "AA30")
     # all_target_outputs = [target_output, CellDependency("Structure Calcs", "CS6")]
+    # all_target_outputs = vec(XLConvert.cells(WorkbookRegion("Site Inputs", "L103", "P2677")))
     all_target_outputs = [target_output]
-    @show all_target_outputs
+    # @show all_target_outputs
     # inputs = [CellDependency("vessels", "AA13"), CellDependency("vessels", "AA16"), CellDependency("vessels", "AA17"), CellDependency("vessels", "AA18")]
     @show nv(wb.cell_graph) ne(wb.cell_graph)
 
     # test_cell = CellDependency("Operations", "I46")
 
-    wb = test_lookup_const_propagate(wb)
+    @time "lookup_const_propagate" wb = test_lookup_const_propagate(wb)
     @show nv(wb.cell_graph) ne(wb.cell_graph)
 
 
@@ -1991,9 +2313,10 @@ function get_subset(wb_in::XLConvert.ExcelWorkbook2)
 
 
     inputs = Vector{CellDependency}()
-    append!(inputs, XLConvert.cells(WorkbookRegion("aggregated oyster growth", "F11", "G157")))
+    append!(inputs, XLConvert.cells(WorkbookRegion("aggregated oyster growth", "F3", "G157")))
     append!(inputs, XLConvert.cells(WorkbookRegion("aggregated oyster growth", "J11", "K157")))
     append!(inputs, XLConvert.cells(WorkbookRegion("Structure Calcs", "FG5", "FH262")))
+    append!(inputs, XLConvert.cells(WorkbookRegion("Operations", "F337", "H448")))
 
     @time used_subset = XLConvert.get_workbook_subset(wb, all_target_outputs)
 
@@ -2028,126 +2351,17 @@ end
 
 function make_tables(used_subset::XLConvert.ExcelWorkbook2)
     xf = used_subset.xf
-    tables = [
-        # DefTable(xf, "vessels", "vsl_dsn", "AA43", "AC322", "AA6:AC6", "Y43:Y322")
-        DefTable(xf, "vessels", "vsl_choices", "F14", "X43", "F4:X4", "B14:B43"),
-        StandardTable(xf, "vessels", "type_info", "F5", "X9", 4, "B"),
-        StandardTable(xf, "vessels", "from_library", "F103", "X122", 6, "B"),
-        StandardTable(xf, "vessels", "intermediate_res", "F136", "X142", 6, "B"),
-        StandardTable(xf, "vessels", "recorded_results", "F61", "X99", 4, "B"),
-        # DefTable(xf, "Vessel_Library", "vsl_library", "D6", "P38", "D3:P3", "B6:B38"),
-        DefTable(xf, "Structure Calcs", "tasks", "CN4", "FH4", "CN4:FH4", ""),
-        DefTable(xf, "Structure Calcs", "component_calc", "B6", "CG47", "B4:CG4", "B6:B47"),
-        DefTable(xf, "Structure Calcs", "component_vessel_task_times", "CN6", "FH47", "CN4:FH4", "CM6:CM47"),
-        DefTable(xf, "Structure Calcs", "component_deck_hand_time", "CN51", "FH92", "CN4:FH4", "CM51:CM92"),
-        DefTable(xf, "Structure Calcs", "component_task_quantity", "CN100", "FH141", "CN4:FH4", "CM100:CM141"),
-        DefTable(xf, "Structure Calcs", "component_task_annual_vsl_time", "CN149", "FH190", "CN4:FH4", "CM149:CM190"),
-        DefTable(xf, "Structure Calcs", "component_task_annual_deck_hand_time", "CN197", "FH238", "CN4:FH4", "CM197:CM238"),
-        DefTable(xf, "Structure Calcs", "monthly_machine_use", "CN251", "FH262", "CN4:FH4", "CM251:CM262"),
-        StandardTable(xf, "Structure Calcs", "vssl_A_ops", "B54", "B69", 54, "B"),
-        StandardTable(xf, "Structure Calcs", "vssl_A_hours", "C55", "G69", 54, "B"),
-        StandardTable(xf, "Structure Calcs", "vssl_A_hours_loc", "C54", "G54", 54),
-        StandardTable(xf, "Structure Calcs", "vssl_A_deck_hand_hours", "H55", "L69", 54, "B"),
-        StandardTable(xf, "Structure Calcs", "vssl_B_ops", "B75", "B89", 54, "B"),
-        StandardTable(xf, "Structure Calcs", "vssl_B_hours", "C75", "G89", 54, "B"),
-        StandardTable(xf, "Structure Calcs", "vssl_B_deck_hand_hours", "H75", "L89", 54, "B"),
-        StandardTable(xf, "Structure Calcs", "vssl_C_ops", "B95", "B109", 54, "B"),
-        StandardTable(xf, "Structure Calcs", "vssl_C_hours", "C95", "G109", 54, "B"),
-        StandardTable(xf, "Structure Calcs", "vssl_C_deck_hand_hours", "H95", "L109", 54, "B"),
-        StandardTable(xf, "Structure Calcs", "vssl_machine_hours", "C114", "G128", 54, "B"),
-        StandardTable(xf, "Structure Calcs", "vssl_machine_deck_hand_hours", "H114", "L128", 54, "B"),
-        StandardTable(xf, "Operations", "vessel_inputs", "D4", "Q18", 3, "B"),
-        StandardTable(xf, "Operations", "vsl_A_annual_time", "D45", "Q48", 3, "B"),
-        StandardTable(xf, "Operations", "vsl_B_annual_time", "D51", "Q54", 3, "B"),
-        StandardTable(xf, "Operations", "vsl_C_annual_time", "D57", "Q60", 3, "B"),
-        StandardTable(xf, "Operations", "vsl_A_deck_hand_annual", "D64", "Q67", 3, "B"),
-        StandardTable(xf, "Operations", "vsl_B_deck_hand_annual", "D70", "Q73", 3, "B"),
-        StandardTable(xf, "Operations", "vsl_C_deck_hand_annual", "D76", "Q79", 3, "B"),
-        StandardTable(xf, "Operations", "non_vessel_deck_hand_annual_requirements", "D82", "Q85", 3, "B"),
-        StandardTable(xf, "Operations", "dates", "D87", "Q88", 3, "B"),
-        StandardTable(xf, "Operations", "non_vessel_ops", "D281", "Q283", 3, "B"),
-        StandardTable(xf, "Operations", "capacity_per_month", "D93", "Q104", 3, "B"),
-        StandardTable(xf, "Operations", "month_used_even_years", "D108", "Q119", 3, "B"),
-        StandardTable(xf, "Operations", "even_years_months", "B108", "B119", 103, "B"),
-        StandardTable(xf, "Operations", "month_used_odd_years", "D122", "Q133", 3, "B"),
-        StandardTable(xf, "Operations", "odd_years_months", "B122", "B133", 117, "B"),
-        StandardTable(xf, "Operations", "crew_reqs", "D135", "Q136", 3, "B"),
-        StandardTable(xf, "Operations", "vessel_A", "D139", "Q183", 138, "B"),
-        StandardTable(xf, "Operations", "vessel_A_cols", "D138", "Q138", 138),
-        StandardTable(xf, "Operations", "vessel_B", "D187", "Q231", 186, "B"),
-        StandardTable(xf, "Operations", "vessel_B_col", "D186", "Q186", 186),
-        StandardTable(xf, "Operations", "vessel_C", "D234", "Q278", 233, "B"),
-        StandardTable(xf, "Operations", "vessel_C_col", "D233", "Q233", 233),
-        StandardTable(xf, "Operations", "financing_mult", "D300", "Z300", 4, "B"),
-        StandardTable(xf, "Operations", "month_info", "T109", "X132",108),
-        StandardTable(xf, "Operations", "work_hours_per_day", "D90", "Q90",3, "B"),
-        DefTable(xf, "Structure Assumptions", "task_settings", "B3", "BA73", "B2:BA2", "F3:F73"),
-        StandardTable(xf, "Structure Assumptions", "assembly", "D77", "AH100", 76, "C"),
-        StandardTable(xf, "growth model", "growth_curve", "B21", "G272", 18),
-        StandardTable(xf, "growth model", "harvest_period", "H21", "Y117", 18),
-        StandardTable(xf, "Site Inputs", "weather_days", "C68", "AD88", 67),
-        StandardTable(xf, "Site Inputs", "sig_wave_height", "B21", "Q59", 20),
-        StandardTable(xf, "Site Inputs", "vessel_weather_days", "AA21", "AF32", 20, "AA"),
-        StandardTable(xf, "Site Inputs", "oyster_site_params", "L95", "P98", 101, "K"),
-        StandardTable(xf, "Site Inputs", "oyster_site", "C103", "P2677", 101),
-        StandardTable(xf, "Machines", "info", "D3", "AB27", 2, "B"),
-        StandardTable(xf, "Machines", "estimated_cost_breakdown", "D30", "AB36", 2, "B"),
-        StandardTable(xf, "Machines", "calcs", "D38", "AB56", 2, "B"),
-        StandardTable(xf, "Machines", "power_support", "D59", "AB64", 2, "B"),
-        StandardTable(xf, "Machines", "combined", "D67", "AB71", 2, "B"),
-        StandardTable(xf, "Machines", "used_on_vessel", "D74", "AB87", 2, "B"),
-        StandardTable(xf, "Machines", "quantity_required", "D90", "AB103", 2, "B"),
-        StandardTable(xf, "Machines", "rented_machinery", "D112", "AB114", 2, "B"),
-        StandardTable(xf, "Machines", "time_needed", "D119", "AB130", 2, "B"),
-        StandardTable(xf, "Machines", "min_needed", "D133", "AB144", 2, "B"),
-        StandardTable(xf, "Equip&Mat Assumptions", "tasks", "B4", "BG47", 3, "H"),
-        StandardTable(xf, "Equip&Mat Assumptions", "equipment", "C51", "AG69", 47, "C"),
-        StandardTable(xf, "Equip&Mat Assumptions", "materials", "C73", "N90", 69, "C"),
-        # Equip&Mat Calcs
-        StandardTable(xf, "Equip&Mat Calcs", "tasks", "W2", "BN2", 2),
-        StandardTable(xf, "Equip&Mat Calcs", "vssl_or_machine_time", "W4", "BN34", 2, "B"),
-        StandardTable(xf, "Equip&Mat Calcs", "deck_hand_time", "W38", "BN66", 2, "U"),
-        StandardTable(xf, "Equip&Mat Calcs", "monthly_machine_use", "W77", "BN88", 2, "V"),
-        StandardTable(xf, "Equip&Mat Calcs", "equipment", "B4", "N34", 2, "B"),
-        StandardTable(xf, "Equip&Mat Calcs", "per_item_names", "K2", "N2", 2),
-        StandardTable(xf, "Equip&Mat Calcs", "vssl_A_hours", "D120", "G133", 119, "B"),
-        StandardTable(xf, "Equip&Mat Calcs", "vssl_A_ops", "B120", "B133", 119, "B"),
-        StandardTable(xf, "Equip&Mat Calcs", "vssl_A_hours_loc", "D119", "G119", 119),
-        StandardTable(xf, "Equip&Mat Calcs", "vssl_B_hours", "D139", "G152", 138, "B"),
-        StandardTable(xf, "Equip&Mat Calcs", "vssl_B_ops", "B139", "B152", 138, "B"),
-        StandardTable(xf, "Equip&Mat Calcs", "vssl_B_hours_loc", "D138", "G152", 138),
-        StandardTable(xf, "Equip&Mat Calcs", "vssl_C_hours", "D157", "G170", 156, "B"),
-        StandardTable(xf, "Equip&Mat Calcs", "vssl_C_ops", "B157", "B170", 156, "B"),
-        StandardTable(xf, "Equip&Mat Calcs", "vssl_C_hours_loc", "D156", "G156", 156),
-        StandardTable(xf, "Equip&Mat Calcs", "non_vssl_hours", "D175", "G188", 174),
-        StandardTable(xf, "Equip&Mat Calcs", "non_vssl_hours_loc", "D174", "G174", 174),
+    tables = ExcelTable[]
 
-        StandardTable(xf, "Equip&Mat Calcs", "deck_hand_vssl_A_hours", "K120", "N133", 119, "B"),
-        StandardTable(xf, "Equip&Mat Calcs", "deck_hand_vssl_A_hours_loc", "K119", "N119", 119),
-        StandardTable(xf, "Equip&Mat Calcs", "deck_hand_vssl_B_hours", "K139", "N152", 138, "B"),
-        StandardTable(xf, "Equip&Mat Calcs", "deck_hand_vssl_B_hours_loc", "K138", "N152", 138),
-        StandardTable(xf, "Equip&Mat Calcs", "deck_hand_vssl_C_hours", "K157", "N170", 156, "B"),
-        StandardTable(xf, "Equip&Mat Calcs", "deck_hand_vssl_C_hours_loc", "K156", "N156", 156),
-        StandardTable(xf, "Equip&Mat Calcs", "deck_hand_non_vssl_hours", "K175", "N188", 174),
-        StandardTable(xf, "Equip&Mat Calcs", "deck_hand_non_vssl_hours_loc", "K174", "N174", 174),
-
-        StandardTable(xf, "3. Seed", "capex", "AO4", "BI30", 3, "AM"),
-        DefTable(xf, "oyster gear", "gear", "B5", "AB28", "B3:AB3", ""),
-        StandardTable(xf, "KAM Results", "structural", "B9", "G47", 8, "B"),
-        StandardTable(xf, "Vessel_Library", "library", "E6", "Q39", 3, "B"),
-        StandardTable(xf, "Vessel_Library", "workable_wave_height", "E42", "Q42", 41, "B"),
-        StandardTable(xf, "Vessel_Library", "weather_day_portion", "E43", "Q54", 41, "B"),
-        DefTable(xf, "standard tasks", "structure_related", "B3", "AX66", "B2:AX2", "F3:F66"),
-        DefTable(xf, "standard tasks", "equip_related", "B70", "Z140", "B2:Z2", "F70:F140"),
-        DefTable(xf, "standard tasks", "equip_flags", "AA70", "BC140", "AA69:BC69", ""),
-        StandardTable(xf, "material properties", "props", "C3", "W37", 2, "B"),
-        StandardTable(xf, "Anchor Sizing", "anchors", "L3", "N44", 2, "J"),
-        StandardTable(xf, "Anchor Sizing", "deployment", "C58", "D60", 57, "C"),
-        StandardTable(xf, "Anchor Sizing", "sediment_type", "C63", "F66", 62, "C"),
-        StandardTable(xf, "Anchor Sizing", "k_soils", "J82", "M82",82),
-        StandardTable(xf, "Anchor Sizing", "a_soils", "D82", "H82",82),
-        StandardTable(xf, "growth- cohort group 1", "growth", "B10", "BX157",9),
-    ]
+    append!(tables, make_vessels_tables(xf))
+    append!(tables, make_structure_calcs_tables(xf))
+    append!(tables, make_operations_tables(xf))
+    append!(tables, make_structure_assumptions_tables(xf))
+    append!(tables, make_growth_and_site_tables(xf))
+    append!(tables, make_machines_tables(xf))
+    append!(tables, make_equip_mat_tables(xf))
+    append!(tables, make_labor_tables(xf))
+    append!(tables, make_misc_tables(xf))
 
     extra_ranges = [
         ("oyster Husbandry model", "A13", "JI25")
@@ -2160,6 +2374,10 @@ function make_tables(used_subset::XLConvert.ExcelWorkbook2)
         ("oyster Husbandry model", "HC6", "HM11")
         ("oyster Husbandry model", "IH7", "IR11")
         ("oyster Husbandry model", "FI6", "FS11")
+        ("oyster Husbandry model", "GK6", "GU11")
+        ("oyster Husbandry model", "GK28", "GU28")
+        ("oyster Husbandry model", "AI30", "BF30")
+        ("oyster Husbandry model", "CK30", "DZ30")
         # ("growth- cohort group 1", "B10", "BX157")
         ("growth- cohort group 2", "B11", "BX82")
         ("growth- cohort group 3", "B11", "BX82")
@@ -2223,9 +2441,10 @@ function generate_statements(used_subset::XLConvert.ExcelWorkbook2, tables)
         @time "if_toggle_transform" if_toggle_transform!(statements)
         @time "round_if_transform" round_if_transform!(statements)
         @time "if_one_zero_transform" if_one_zero_transform!(statements)
+        @time "average_two_cell_range_transform" average_two_cell_range_transform!(statements)
         # @time "is_blank_transform" is_blank_transform!(statements)
         @time "table_ref_transform" table_ref_transform!(statements, tables)
-        # @time "indirect_xlookup_range_transform" indirect_xlookup_range_transform!(statements)
+        @time "indirect_transform!" indirect_transform!(statements)
         table_stmts = filter(s -> s isa XLConvert.TableStatement, statements)
         @show length(table_stmts)
         # return statements
@@ -2252,10 +2471,10 @@ function generate_statements(used_subset::XLConvert.ExcelWorkbook2, tables)
         println("Add functions")
         println("-"^40)
         @time statements_with_funcs = add_functions(grouped_statements, min_intermediates = 2)
-        println("-"^40)
-        println("Group statements (again)")
-        println("-"^40)
-        @time statements_with_funcs = group_statements(statements_with_funcs)
+        # println("-"^40)
+        # println("Group statements (again)")
+        # println("-"^40)
+        # @time statements_with_funcs = group_statements(statements_with_funcs)
         # statements_with_funcs = add_functions(statements, min_intermediates=2)
 
         statements_with_funcs
@@ -2694,7 +2913,7 @@ function export_statements(used_subset::XLConvert.ExcelWorkbook2, statements, ta
 
 
     println("Write file")
-    @time write_file(exporter, "modular_tea.txt", used_subset, statements)
+    @time write_file(exporter, "tea/modular_tea.py", used_subset, statements)
 
     statements, exporter
 end
@@ -2724,6 +2943,8 @@ function run(wb_in::XLConvert.ExcelWorkbook2)
     tables = make_tables(used_subset)
     # statements = get_statements(used_subset, tables)
     statements = generate_statements(used_subset, tables)
+
+    cell_to_statement = XLConvert.make_cell_to_statement_dict(statements)
 
     const_cells = [
         CellDependency("Anchor Sizing", "AE26"),
@@ -2764,7 +2985,13 @@ function run(wb_in::XLConvert.ExcelWorkbook2)
         CellDependency("Machines", "B90"),
         CellDependency("Labor", "D5"),
     ]
-    for stmt in statements
+    for cell in const_cells
+        stmt = get(cell_to_statement, cell, nothing)
+        if isnothing(stmt)
+            println("Const cell $cell wasn't actually set anywhere")
+            continue
+        end
+
         set_cells = get_set_cells(stmt)
         if length(set_cells) == 1 && set_cells[1] in const_cells
             lhs = set_cells[1]
@@ -2775,6 +3002,17 @@ function run(wb_in::XLConvert.ExcelWorkbook2)
             end
         end
     end
+    # for stmt in statements
+    #     set_cells = get_set_cells(stmt)
+    #     if length(set_cells) == 1 && set_cells[1] in const_cells
+    #         lhs = set_cells[1]
+    #         if stmt isa XLConvert.StandardStatement
+    #             stmt.rhs_expr = xf[lhs.sheet_name][lhs.cell]
+    #         elseif stmt isa XLConvert.TableStatement
+    #             stmt.rhs_expr = xf[lhs.sheet_name][lhs.cell]
+    #         end
+    #     end
+    # end
 
     override_values = [
         (CellDependency("oyster Husbandry model", "H9"), 0.0)
@@ -2790,15 +3028,42 @@ function run(wb_in::XLConvert.ExcelWorkbook2)
         (CellDependency("KAM Results", "J41"), 0.0)
     ]
     for (cell, new_value) in override_values
-        for stmt in statements
-            if cell in get_set_cells(stmt)
-                @show stmt
-                if stmt isa XLConvert.StandardStatement
-                    stmt.rhs_expr = new_value
-                else
-                    throw("Don't know how to override statement $stmt")
-                end
+        stmt = get(cell_to_statement, cell, nothing)
+        if isnothing(stmt)
+            println("overridden value at $cell wasn't associated with a statement")
+            continue
+        end
+
+        if cell in get_set_cells(stmt)
+            # @show stmt
+            if stmt isa XLConvert.StandardStatement
+                stmt.rhs_expr = new_value
+            else
+                throw("Don't know how to override statement $stmt")
             end
+        end
+    end
+
+    missing_to_zero_regions = [
+        WorkbookRegion("Machines", "D13", "AB13")
+    ]
+
+    for region in missing_to_zero_regions
+        for cell in XLConvert.cells(region)
+            stmt = get(cell_to_statement, cell, nothing)
+            if isnothing(stmt)
+                println("$cell wasn't associated with a statement, whend oing missing to zero")
+                continue
+            end
+            if stmt isa XLConvert.TableStatement
+                if ismissing(stmt.rhs_expr)
+                    stmt.rhs_expr = 0
+                end
+                # @show stmt.rhs_expr
+            elseif stmt isa XLConvert.BroadcastedStatement
+                # @show stmt.func_expr
+            end
+            # @show stmt
         end
     end
 

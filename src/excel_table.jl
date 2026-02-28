@@ -102,13 +102,28 @@ end
 get_column_names(table::ExcelTable) = table._col_names
 get_row_names(table::ExcelTable) = table._row_names
 
+function region(table::ExcelTable)
+    sheet = table.sheet_name
+    WorkbookRegion(CellDependency(sheet, table.__startcol, table.__startrow), CellDependency(sheet, table.__endcol, table.__endrow))
+end
+
+function column_name_region(table::ExcelTable)
+    first, last = split(table.column_names_range, ":")
+    WorkbookRegion(table.sheet_name, first, last)
+end
+
+function row_name_region(table::ExcelTable)
+    if ismissing(table.row_names_range)
+        return nothing
+    end
+
+    first, last = split(table.row_names_range, ":")
+    WorkbookRegion(table.sheet_name, first, last)
+end
+
 # Base.in((row, col), table::ExcelTable) = (row >= startrow(table) && row <= endrow(table) && col >= startcol(table) && col <= endcol(table))
 function Base.in((row, col), table::ExcelTable)
-    # start_c, start_r = parse_cell(table.top_left)
-    # end_c, end_r = parse_cell(table.bottom_right)
-
     (startrow(table) <= row <= endrow(table)) && (startcol(table) <= col <= endcol(table))
-    # (row >= startrow(table) && row <= endrow(table) && col >= startcol(table) && col <= endcol(table))
 end
 Base.in(cell::CellDependency, table::ExcelTable) = ((rownum(cell), colnum(cell)) in table) && (cell.sheet_name == table.sheet_name)
 

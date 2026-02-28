@@ -6,7 +6,37 @@ import datetime
 from scipy import stats
 from scipy import constants
 
-class BlankZeroType(float):
+import openpyxl
+from openpyxl.utils.cell import range_boundaries
+
+wb = openpyxl.load_workbook("Modular TEA - master - v1.25.xlsm", data_only=True)
+
+def convert_xl_value(v):
+    if v is None:
+        return pd.NA
+    if isinstance(v, datetime.date):
+        return pd.Timestamp(v)
+    if isinstance(v, str) and v.startswith("#"):
+        return pd.NA
+    return v
+
+def load_range(sheet:str, first:str, last:str):
+    ws = wb[sheet]
+    min_col, min_row, max_col, max_row = range_boundaries(f"{first}:{last}")
+
+    # Returns a 2D list of values (not Cell objects)
+    return [
+        list(map(convert_xl_value,row))
+        for row in ws.iter_rows(
+            min_row=min_row,
+            max_row=max_row,
+            min_col=min_col,
+            max_col=max_col,
+            values_only=True,
+        )
+    ]
+
+class BlankZeroType(np.float64):
     """Represents a value that behaves mathematically as zero, but is tagged as being from a blank"""
     ...
 
@@ -62,6 +92,9 @@ def logical(a):
 
 
 def na_to_zero(a):
+    if isinstance(a, np.ndarray):
+        start_shape = a.shape
+        return np.array(list(map(na_to_zero, a.flat)), dtype=a.dtype).reshape(start_shape)
     if isinstance(a, pd.Series):
         assert len(a) == 1
         a = a.iloc[0]
@@ -270,6 +303,8 @@ def degrees(a):
     return as_array(a) * 180 / np.pi
 
 def is_number(a):
+    if isinstance(a, np.ndarray):
+        return a.shape == ()
     return isinstance(a, (int, float, np.number))
 
 def compare_list(a_list, b_list):
@@ -281,23 +316,23 @@ def compare_list(a_list, b_list):
     return True
 
 def compare(a, b):
-    if isinstance(a, str):
+    if pd.isna(b):
+        res = True
+        # res = pd.isna(a) or a == 0
+    elif isinstance(a, str):
         # what a weird edge cast to handle the fact that excel and python spell
         # false with different capitalization
-        if "FALSE" in b:
+        if isinstance(b, str) and "FALSE" in b:
             a = a.replace("False", "FALSE")
         res = a == b
     elif pd.isna(a):
         res = pd.isna(b) or b == 0
     elif is_number(a) and math.isnan(a) :
         res = math.isnan(b) or b == 0
-    elif pd.isna(b):
-        res = True
-        # res = pd.isna(a) or a == 0
     elif is_number(a) and is_number(b):
         res = math.isclose(a, b)
         # res = abs(a - b) < 1e-10
-    elif isinstance(a, pd.Timestamp) and isinstance(b, pd.Timestamp):
+    elif isinstance(a, (pd.Timestamp, np.datetime64)) and isinstance(b, (pd.Timestamp, np.datetime64)):
         res = abs(a - b) < pd.Timedelta(seconds=1)
     elif isinstance(a, datetime.datetime) and type(b) is datetime.date:
         res = a == promote_to_datetime(b)
@@ -340,7 +375,8 @@ def max(*args):
     all_args = list(flat(args))
     # print(f"{all_args = }")
     if any(map(pd.isna, all_args)):
-        return pd.NA
+        return np.max(list(filter(not_none, all_args)))
+        # return pd.NA
     if len(all_args) == 0:
         return 0
     return np.max(all_args)
@@ -449,7 +485,22 @@ def date_add(date, delta):
     #     return date + datetime.timedelta(delta)
     # print(f"{delta = }")
     # pandas is sometimes less accurate than datetime, so we round to microseconds
-    res =  (date + pd.Timedelta(delta, "D")).round(freq="us")
+    if isinstance(delta, np.ndarray):
+        time_delta = delta.astype(float) * pd.Timedelta(1, "D")
+        date = date.astype("datetime64")
+        # print("date = ")
+        # print(date)
+        # print(f"{type(date) = }")
+        # print(f"{date.dtype = }")
+        res =  pd.DatetimeIndex(date + time_delta).round(freq="us").values
+    else:
+        if isinstance(delta, np.datetime64):
+            zero_day = pd.Timestamp(1900, 1, 1) - pd.Timedelta(days=2)
+            delta = date_sub(delta, zero_day)
+
+        time_delta = pd.Timedelta(delta, "D")
+        # print(date)
+        res =  (date + time_delta).round(freq="us")
     return res
 
 
@@ -471,26 +522,42 @@ def date_sub(date, delta):
             return date - datetime.timedelta(days=delta)
         else:
             return promote_to_datetime(date) - datetime.timedelta(days=delta)
+    if isinstance(delta, pd.Timestamp):
+        # print(f"{date = }")
+        # print(f"{delta = }")
+        # print(f"{(date - delta) = }")
+        # print(f"{(date - delta) / pd.Timedelta(days=1.0) = }")
+        return (date - delta) / pd.Timedelta(days=1.0) 
 
+    if isinstance(delta, np.ndarray):
+        return (date - delta) / pd.Timedelta(days=1.0)
+
+    # print(f"{delta = }")
     return date - datetime.timedelta(days=delta)
 
 def year(a):
     if not_none(a):
-        return a.year
+        return pd.Timestamp(a).year
     return pd.NA
 
 def month(a):
     if not_none(a):
-        return a.month
+        return pd.Timestamp(a).month
     return pd.NA
 
 def day(a):
-    return a.day
+    return pd.Timestamp(a).day
+    # return a.day
 
 def days(end, start):
     return (end - start).days
 
 def concat(a, b):
+    def try_int(a):
+        if is_whole_number(a):
+            return int(a)
+        return a
+
     # print(f"{a = }, {b = }")
     if isinstance(a, pd.Series):
         na_mask = pd.isna(a)
@@ -503,7 +570,13 @@ def concat(a, b):
     
     if isinstance(a, pd.Series) and isinstance(b, pd.Series):
         na_mask = pd.isna(a) | pd.isna(b)
-        res = a + b
+        a_new = a.apply(try_int)
+        b_new = b.apply(try_int)
+        # print("b = ")
+        # print(b)
+        # print("b_new = ")
+        # print(b_new)
+        res = a_new.astype(str) + b_new.astype(str)
         res[na_mask] = ""
         return res
     
@@ -566,7 +639,7 @@ def sum_product(*args):
             raise e
 
 
-    return xlsum(reduce(mult, args))
+    return np.float64(xlsum(reduce(mult, args)))
 
 
 def match(value, search_range, match_mode=0):
@@ -604,7 +677,7 @@ def match_case_insensitive(a, b):
         # print(mask)
         return mask
 
-    return (a.str.lower() == b.lower()).values
+    return (a.astype(str).str.lower() == b.lower()).values
 
 def convert(val, in_unit, out_unit):
     if in_unit == "HP" and out_unit == "W":
@@ -632,3 +705,9 @@ def norm_dist(x, mu, sigma, is_cumulative):
 def pmt(rate, nper, pv):
     # @info "xl_pmt" rate nper pv
     return -1 * np.sign(pv) * (pv * rate) / (1 - (1 + rate)**(-nper))
+
+def safe_recip(val):
+    if val == 0:
+        return 0
+
+    return 1 / val

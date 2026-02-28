@@ -101,12 +101,16 @@ export CellDependency,
     xl_convert,
     xl_isnumber,
     @flat_match,
-    handle
+    handle,
+    change_expr_part!,
+    change_expr_part,
+    find_cycle
 
 
 
 
 include("object_numbering.jl")
+include("graph_utils.jl")
 include("excel_expr.jl")
 include("formula_parser.jl")
 include("excel_formula.jl")
@@ -114,6 +118,7 @@ include("flat_expr.jl")
 include("flat_match.jl")
 include("type_infer.jl")
 include("cell_dependency.jl")
+include("workbook_region.jl")
 include("excel_table.jl")
 include("excel_workbook.jl")
 include("export_julia.jl")

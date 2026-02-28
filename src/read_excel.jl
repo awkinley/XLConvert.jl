@@ -223,42 +223,7 @@ function get_topo_levels_bottom_up(wb::WorkbookSubset)
     topo_levels
 end
 
-function get_topo_levels_bottom_up(graph::SimpleDiGraph)
-    topo_sorted = topological_sort(reverse(graph))
 
-    topo_levels = Dict{Int64, Int64}()
-    for node in topo_sorted
-        dependencies = outneighbors(graph, node)
-        topo_levels[node] = maximum(k -> topo_levels[k] + 1, dependencies; init = 0)
-    end
-
-    topo_levels
-end
-
-function get_topo_levels_top_down(graph::SimpleDiGraph)
-    topo_sorted = topological_sort(graph)
-
-    topo_levels = Dict{Int64, Int64}()
-    for node in topo_sorted
-        # We have to filter in this case, and not in the bottom up case
-        # because it's not possible for a cell to depend on a value not in used_nodes
-        # but it is possible for a cell not in used_nodes to depend on one that is
-        dependents = inneighbors(graph, node)
-        # topo_levels[node] = minimum(map(k -> topo_levels[k] - 1, dependents); init=0)
-        topo_levels[node] = minimum(k -> topo_levels[k] - 1, dependents; init = 0)
-    end
-
-    # Will be a negative number
-    min_level = minimum(values(topo_levels))
-
-    # Change the range of levels from -n:0 to 0:n
-    for k in keys(topo_levels)
-        topo_levels[k] -= min_level
-    end
-
-
-    topo_levels
-end
 
 function get_topo_levels_top_down(wb::WorkbookSubset)
     topo_sorted = topological_sort(wb.graph)

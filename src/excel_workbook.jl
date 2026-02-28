@@ -389,7 +389,7 @@ function get_all_referenced_cells(workbook::ExcelWorkbook)
     # collect(unioned)
 end
 
-function force_cells_to_be_value(workbook::XLConvert.ExcelWorkbook2, cells::Vector{CellDependency})
+function force_cells_to_be_value(workbook::XLConvert.ExcelWorkbook2, cells::Vector{CellDependency}; debug::Bool=false)
     graph = workbook.cell_graph
     n_nodes = nv(graph)
 
@@ -410,28 +410,55 @@ function force_cells_to_be_value(workbook::XLConvert.ExcelWorkbook2, cells::Vect
         return workbook
     end
 
-    # removal_candidates = all upstream dependencies of forced cells, excluding forced cells.
-    removal_candidates = falses(n_nodes)
-    for node_num in forced_nodes
-        parents = bfs_parents(graph, node_num, dir = :out)
-        @. removal_candidates |= parents > 0
-    end
-    removal_candidates[forced_nodes] .= false
 
-    # required_candidates = candidate seeds and all their dependencies.
-    required_candidates = falses(n_nodes)
+    # removal_candidates = all upstream dependencies of forced cells, excluding forced cells.
+    removal_candidates = bfs_multi_parents(graph, forced_nodes, dir = :out) .> 0
+    removal_candidates[forced_nodes] .= false
+    if debug
+        println("# removal candidates = $(sum(removal_candidates))")
+    end
+
     # Seeds are candidate nodes that are required by at least one non-candidate/non-forced dependent.
-    # required_seed_nodes = Int64[]
+    required_seed_mask = falses(n_nodes)
+    required_seed_nodes = Int64[]
+    sizehint!(required_seed_nodes, length(forced_nodes))
     for node in eachindex(removal_candidates)
         !removal_candidates[node] && continue
 
         for dependent in inneighbors(graph, node)
             if !removal_candidates[dependent] && !forced_mask[dependent]
-                parents = bfs_parents(graph, node, dir = :out)
-                @. required_candidates |= (parents > 0) & removal_candidates
-                # push!(required_seed_nodes, node)
+                required_seed_mask[node] = true
+                push!(required_seed_nodes, node)
                 break
             end
+        end
+    end
+    
+    if debug
+        println("# required seed nodes = $(length(required_seed_nodes))")
+    end
+
+    is_forced(n) = forced_mask[n]
+    function non_forced_deps(g, n)
+        neighbors = outneighbors(g, n)
+        if any(is_forced, neighbors)
+            filter(node -> !forced_mask[node], neighbors)
+        else
+            neighbors
+        end
+    end
+
+    # required_candidates = seed nodes and all of their dependencies, limited to candidates.
+    required_candidates = falses(n_nodes)
+    if !isempty(required_seed_nodes)
+        # required_candidates = bfs_multi_parents(graph, required_seed_nodes, dir = :out) .> 0
+        required_candidates = Graphs._bfs_parents(graph, required_seed_nodes, non_forced_deps) .> 0
+        if debug
+            println("Number of required candidates = $(sum(required_candidates))")
+        end
+        @. required_candidates &= removal_candidates
+        if debug
+            println("Number of required candidates after and = $(sum(required_candidates))")
         end
     end
 
@@ -441,14 +468,14 @@ function force_cells_to_be_value(workbook::XLConvert.ExcelWorkbook2, cells::Vect
     used_nodes_list = findall(used_mask)
     println("Removing $(nv(graph) - length(used_nodes_list)) nodes")
 
-    (subgraph, vmap) = induced_subgraph(graph, used_nodes_list)
+    @time "induced_subgraph" (subgraph, vmap) = induced_subgraph(graph, used_nodes_list)
 
     # Remove dependencies from forced nodes in the subgraph so they are true value cells.
     old_to_new = zeros(Int64, n_nodes)
     for (new_node, old_node) in enumerate(vmap)
         old_to_new[old_node] = new_node
     end
-    for old_node in forced_nodes
+    @time "removing extra edges" for old_node in forced_nodes
         new_node = old_to_new[old_node]
         if new_node > 0
             deps = collect(outneighbors(subgraph, new_node))
@@ -463,7 +490,7 @@ function force_cells_to_be_value(workbook::XLConvert.ExcelWorkbook2, cells::Vect
     old_cells = workbook.cell_numbering.objs
     cell_dict = Dict{CellDependency, Any}()
     sizehint!(cell_dict, length(vmap))
-    for old_node in vmap
+    @time "making value cells" for old_node in vmap
         cell = old_cells[old_node]
         cell_val = get(workbook.cell_dict, cell, MissingCell())
 
