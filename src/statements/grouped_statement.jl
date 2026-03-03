@@ -432,6 +432,51 @@ function part_to_workbook_range(expr::XLConvert.FlatExpr, i::Int32)
     end
 end
 
+function make_loop_assertion_string(exporter::PythonExporter, xf, table_ref::TableRef)
+    # table, lhs_row_idx, lhs_col_idx = @match statement.lhs_expr begin
+    #     ExcelExpr(:table_ref, [table, row_idx, col_idx, _, _]) => (table, row_idx, col_idx)
+    #     _ => (missing, missing, missing)
+    # end
+    # if is_transposed(table)
+    #     (lhs_row_idx, lhs_col_idx) = (lhs_col_idx, lhs_row_idx)
+    # end
+
+    table = get_table(table_ref)
+    lhs_row_idx = get_rows(table_ref)
+    lhs_col_idx = get_cols(table_ref)
+
+    sheet = string(table.sheet_name)
+
+    out = ""
+
+    if length(lhs_row_idx) > 1
+        for c in lhs_col_idx
+            first_cell = CellDependency(sheet, startcol(table) + c - 1, startrow(table) + first(lhs_row_idx) - 1)
+            last_cell = CellDependency(sheet, startcol(table) + c - 1, startrow(table) + last(lhs_row_idx) - 1)
+            cell_values = xf[sheet][first_cell.cell * ":" * last_cell.cell]
+            value_strings = convert.(Ref(exporter), cell_values, Ref(sheet))
+            value_str = string("[", join(value_strings, ", "), "]")
+
+            lhs_expr = ExcelExpr(:table_ref, table, lhs_row_idx, c, (false, false), (false, false))
+            lhs = convert(exporter, lhs_expr,sheet)
+            out *= "assert xl.compare_list($lhs, $(value_str))\n"
+        end
+    else
+
+        r = first(lhs_row_idx)
+        first_cell = CellDependency(sheet, startcol(table) + first(lhs_col_idx) - 1, startrow(table) + r - 1)
+        last_cell = CellDependency(sheet, startcol(table) + last(lhs_col_idx) - 1, startrow(table) + r - 1)
+        cell_values = xf[sheet][first_cell.cell * ":" * last_cell.cell]
+        value_strings = convert.(Ref(exporter), cell_values, Ref(sheet))
+        value_str = string("[", join(value_strings, ", "), "]")
+        lhs_expr = ExcelExpr(:table_ref, table, r, lhs_col_idx, (false, false), (false, false))
+        lhs = convert(exporter, lhs_expr,sheet)
+        out *= "assert xl.compare_list($lhs, $(value_str))\n"
+    end
+
+    out
+end
+
 
 function export_looped(exporter::PythonExporter, wb::ExcelWorkbook, statements)
     funcs_and_params = [functionalize(s.rhs_expr) for s in statements]
@@ -516,10 +561,19 @@ function export_looped(exporter::PythonExporter, wb::ExcelWorkbook, statements)
     end
     name_handler = ColRowNameHandler(r_name, col_name)
     rhs_str = convert(with_handler(custom_exporter, name_handler), rhs_expr, table.sheet_name)
+
+    first_row = first(row_idx)
+    last_row = first(row_idx) + row_offset * (length(statements) - 1)
+    first_col = first(col_idx)
+    last_col = first(col_idx) + col_offset * (length(statements) - 1)
+    tbl_rows = min(first_row, last_row):max(first_row, last_row)
+    tbl_cols = min(first_col, last_col):max(first_col, last_col)
+    assertion_str = make_loop_assertion_string(exporter, wb.xf, TableRef(table, tbl_rows, tbl_cols))
     """
     for i in range($(length(statements))):
     \t$lhs_str = $rhs_str
 
+    $assertion_str
     """
 end
 
@@ -884,7 +938,7 @@ end
 
 
 function get_function_string(exporter::JuliaExporter, wb::ExcelWorkbook, statement::GroupedStatement)
-    table_sub_stmts = filter(s -> s isa TableStatement, statement.sub_statements)
+    table_sub_stmts = filter(s -> s isa TableStatement || s isa BroadcastedStatement, statement.sub_statements)
     if length(table_sub_stmts) != length(statement.sub_statements)
         return nothing
     end
@@ -997,11 +1051,11 @@ function export_statement(exporter::PythonExporter, wb::ExcelWorkbook, statement
 
     xf = wb.xf
     assert_lines = ""
-    for (cell_ref, name) in zip(set_cells, variable_names)
-        cell_value = xf[string(cell_ref.sheet_name)][cell_ref.cell]
-        value_str = convert(exporter, cell_value, cell_ref.sheet_name)
-        assert_lines *= "assert xl.compare($name, $value_str) # $(to_string(cell_ref))\n"
-    end
+    # for (cell_ref, name) in zip(set_cells, variable_names)
+    #     cell_value = xf[string(cell_ref.sheet_name)][cell_ref.cell]
+    #     value_str = convert(exporter, cell_value, cell_ref.sheet_name)
+    #     assert_lines *= "assert xl.compare($name, $value_str) # $(to_string(cell_ref))\n"
+    # end
 
 
     table_sub_stmts = filter(s -> s isa TableStatement, statement.sub_statements)

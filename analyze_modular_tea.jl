@@ -1,6 +1,7 @@
 if false
     include("./src/XLConvert.jl")
 end
+using SparseArrays
 using AutoHashEquals
 using XLConvert
 using XLConvert: FlatExpr, FlatIdx
@@ -2219,6 +2220,10 @@ function generate_statements(used_subset::XLConvert.ExcelWorkbook2, tables)
         println("-"^40)
         @time grouped_statements = group_statements(statements)
         println("-"^40)
+        println("Group statements (again)")
+        println("-"^40)
+        @time grouped_statements = group_statements(grouped_statements)
+        println("-"^40)
         println("Add functions")
         println("-"^40)
         @time statements_with_funcs = add_functions(grouped_statements, min_intermediates = 2)
@@ -2543,6 +2548,68 @@ function analyze_sheet_dependencies(statements::Vector{AbstractStatement}, stmt_
     end
 
     sheet_reports
+end
+
+function analyze_table(wb::XLConvert.ExcelWorkbook2, table::XLConvert.ExcelTable)
+    tbl_region = XLConvert.region(table)
+    println(tbl_region)
+    table_cells = permutedims(XLConvert.cells(tbl_region))
+
+    graph = wb.cell_graph
+
+    cell_nums = get_num.(Ref(wb), table_cells, 0)
+
+    is_used = cell_nums .!= 0
+    num_used = count(is_used)
+    total_cells = length(cell_nums)
+    println("$num_used / $total_cells cells are used ($(100 * num_used / total_cells)%)")
+    # println("Used cells:")
+    # println(repr("text/plain", sparse(cell_nums .> 0)))
+    # @display sparse(cell_nums .> 0)
+
+    is_input(node)  = node == 0 ? false : length(outneighbors(graph, node)) == 0
+    is_input_mask = is_input.(cell_nums)
+
+    num_inputs = count(is_input_mask)
+    println("$num_inputs / $total_cells cells are inputs ($(100 * num_inputs / total_cells)%)")
+    # println("Inputs:")
+    # println(repr("text/plain", sparse(is_input_mask)))
+    # @display sparse(is_input_mask)
+    topo = topological_sort(graph)
+
+    node_to_coord = Dict{Int, Tuple{Int, Int}}()
+
+    for r in axes(cell_nums, 1), c in axes(cell_nums, 2)
+        num = cell_nums[r, c]
+        if num > 0
+            node_to_coord[num] = (r, c)
+        end
+    end
+
+    chains = XLConvert.partition_to_antichains(graph, topo, cell_nums[is_used])
+    println("Number of chains = $(length(chains))")
+
+    chain_num = zeros(Int64, size(table_cells))
+
+    for (i, chain) in enumerate(chains)
+        # @show chain
+        for n in chain
+            # @show node_to_coord[n]
+            chain_num[node_to_coord[n]...] = i
+        end
+    end
+
+    # println("Chains")
+    # println(repr("text/plain", sparse(chain_num)))
+end
+
+function analyze_sheet_tables(wb::XLConvert.ExcelWorkbook2, tables::Vector{XLConvert.ExcelTable}, sheet_name::String)
+    test_tables = filter(t -> t.sheet_name == sheet_name, tables)
+
+    for table in test_tables
+        println(getname(table))
+        analyze_table(wb, table)
+    end
 end
 
 function export_statements(used_subset::XLConvert.ExcelWorkbook2, statements, tables)

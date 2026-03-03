@@ -59,6 +59,9 @@ end
 function get_num(wb::ExcelWorkbook2, cell::CellDependency)
     get_num(wb.cell_numbering, cell)
 end 
+function get_num(wb::ExcelWorkbook2, cell::CellDependency, default)
+    get_num(wb.cell_numbering, cell, default)
+end 
 
 function get_dependent_cells(wb::ExcelWorkbook2, cell::CellDependency)
     num = get_num(wb, cell)

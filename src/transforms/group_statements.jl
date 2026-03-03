@@ -356,7 +356,7 @@ function new_group_statements(statements::Vector{AbstractStatement}, graph, topo
             # But because a group will generally introduce a scope, it's important that any values set inside that are available outside
             # This is true for table statements, since the table persists, but for other kinds of statements, the value won't persist
             # It also causes functions to have more parameters than needed
-            first_non_table = findfirst(n -> !isa(statements[n], TableStatement), compress_group)
+            first_non_table = findfirst(n -> !(isa(statements[n], TableStatement) || isa(statements[n], BroadcastedStatement)), compress_group)
             do_debug && @show first_non_table
             if !isnothing(first_non_table) && first_non_table < (length(compress_group))
                 compress_group = compress_group[begin:first_non_table - 1]
@@ -365,7 +365,7 @@ function new_group_statements(statements::Vector{AbstractStatement}, graph, topo
                     @show compress_group
                 end
             end
-            has_non_table_statement = any(n -> !isa(statements[n], TableStatement), @view compress_group[begin:(end-1)])
+            has_non_table_statement = any(n -> !(isa(statements[n], TableStatement) || isa(statements[n], BroadcastedStatement)), @view compress_group[begin:(end-1)])
             if do_debug
                 @show length(compress_group) has_non_table_statement
             end
@@ -413,6 +413,7 @@ function debug_group_statements(statements::Vector{AbstractStatement}, set_cell:
     # stmt_graph = make_statement_graph(grouped)
     stmt_topo_levels = get_topo_levels_bottom_up(stmt_graph)
     node = findfirst(s -> set_cell in get_set_cells(s), statements)
+    @show node
     try_smush_node(statements, stmt_graph, stmt_topo_levels, maximum(values(stmt_topo_levels)), node; debug = true)
     # debug_group_statements(statements, stmt_graph, stmt_topo_levels, node)
 

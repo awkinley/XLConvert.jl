@@ -5,6 +5,7 @@ struct ObjectNumbering{T}
 end
 
 get_num(numbering::ObjectNumbering{T}, obj::T) where {T}  = numbering.obj_nums[obj]
+get_num(numbering::ObjectNumbering{T}, obj::T, default) where {T}  = get(numbering.obj_nums, obj, default)
 
 # This variant will insert if it doesn't exist
 function get_num!(numbering::ObjectNumbering{T}, obj::T) where {T} 
