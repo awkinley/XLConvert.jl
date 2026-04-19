@@ -31,7 +31,9 @@ function handle(handler::ColRowNameHandler, expr, exporter::PythonExporter, ctx)
     end
 end
 
-is_number_type(exporter::PythonExporter, expr, ctx) = get_type(expr, sheetname(ctx), exporter.cell_types, exporter.named_values) == Float64
+get_type(expr, exporter::PythonExporter, ctx) = get_type(expr, sheetname(ctx), exporter.cell_types, exporter.named_values)
+is_number_type(exporter::PythonExporter, expr, ctx) = get_type(expr, exporter, ctx) == Float64
+
 
 # function op_binding_affinity(op::Symbol)
 #     @match op begin
@@ -48,6 +50,19 @@ is_date_type(expr::Dates.Date, ctx) = true
 is_date_type(expr::Dates.DateTime, ctx) = true
 is_date_type(exporter::PythonExporter, expr, ctx) = get_type(expr, sheetname(ctx), exporter.cell_types, exporter.named_values) in (Dates.Date, Dates.DateTime)
 
+wrap_parens(s::AbstractString) = string('(', s, ')')
+
+function convert_wrapped(exporter::PythonExporter, expr, binding_strength, ctx)
+    do_wrap = binding_strength < bindingaffinity(ctx)
+    new_ctx = do_wrap ? withbindingaffinity(ctx, -1) : withbindingaffinity(ctx, binding_strength)
+    str = convert(exporter, expr, new_ctx)
+    if do_wrap
+        wrap_parens(str)
+    else
+        str
+    end
+end
+
 
 function handle(::BasicOpHandler, expr::ExcelExpr, exporter::PythonExporter, ctx)
     c = e -> convert(exporter, e, withbindingaffinity(ctx, -1))
@@ -55,27 +70,6 @@ function handle(::BasicOpHandler, expr::ExcelExpr, exporter::PythonExporter, ctx
 
         ExcelExpr(op, [lhs, rhs]), if op ∈ (:+, :-, :*, :/)
         end => begin
-
-            # lhs_number = false
-            # rhs_number = false
-            # try
-            #     lhs_number = is_number_type(exporter, lhs, ctx)
-            #     rhs_number = is_number_type(exporter, rhs, ctx)
-            # catch
-            # end
-
-
-            # if !(lhs_number && rhs_number)
-            #     func_name = @match op begin
-            #         :+ => "xl_add"
-            #         :- => "xl_sub"
-            #         :* => "xl_mul"
-            #         :/ => "xl_div"
-            #     end
-
-            #     return "$func_name($(c(lhs)), $(c(rhs)))"
-            # end
-
             left_affinity, right_affinity = op_binding_affinity(op)
             wrap_parens = left_affinity < bindingaffinity(ctx)
 
@@ -101,15 +95,59 @@ function handle(::BasicOpHandler, expr::ExcelExpr, exporter::PythonExporter, ctx
         end
         ExcelExpr(:+, [unary]) => c(unary)
         ExcelExpr(:-, [unary]) => "(-1 * " * c(unary) * ")"
-        ExcelExpr(:^, [lhs, rhs]) => "(($(c(lhs))) ** ($(c(rhs))))"
+        ExcelExpr(:^, [lhs, rhs]) => begin
+            lhs_str = convert_wrapped(exporter, lhs, 6, ctx)
+            rhs_str = convert_wrapped(exporter, rhs, 7, ctx)
+            # "(($(c(lhs))) ** ($(c(rhs))))"
+            "$lhs_str ** $rhs_str"
+        end
         ExcelExpr(:%, [unary]) => "(($(c(unary))) / 100.0)"
         ExcelExpr(:&, [lhs, rhs]) => "xl.concat($(c(lhs)), $(c(rhs)))"
-        ExcelExpr(:eq, [lhs, rhs]) => "xl.eq($(c(lhs)), $(c(rhs)))"
-        ExcelExpr(:neq, [lhs, rhs]) => "not xl.eq($(c(lhs)), $(c(rhs)))"
-        ExcelExpr(:leq, [lhs, rhs]) => "xl.leq($(c(lhs)), $(c(rhs)))"
-        ExcelExpr(:geq, [lhs, rhs]) => "xl.geq($(c(lhs)), $(c(rhs)))"
-        ExcelExpr(:lt, [lhs, rhs]) => "xl.lt($(c(lhs)), $(c(rhs)))"
-        ExcelExpr(:gt, [lhs, rhs]) => "xl.gt($(c(lhs)), $(c(rhs)))"
+        ExcelExpr(cmp_op, [lhs, rhs]) where cmp_op ∈ (:eq, :neq, :leq, :geq, :lt, :gt) => begin
+            lhs_number = false
+            rhs_number = false
+            try
+                lhs_number = is_number_type(exporter, lhs, ctx)
+                rhs_number = is_number_type(exporter, rhs, ctx)
+            catch
+            end
+
+            # are_num = lhs_number && rhs_number
+            are_num = false
+
+            if are_num
+                infix_op = @match cmp_op begin
+                    :eq => "=="
+                    :neq => "!="
+                    :leq => "<="
+                    :geq => ">="
+                    :lt => "<"
+                    :gt => ">"
+                end
+
+                lhs_str = convert_wrapped(exporter, lhs, 0, ctx)
+                rhs_str = convert_wrapped(exporter, rhs, 0, ctx)
+
+                "$lhs_str $infix_op $rhs_str"
+            else
+                func = @match cmp_op begin
+                    :eq => "xl.eq"
+                    :neq => "not xl.eq"
+                    :leq => "xl.leq"
+                    :geq => "xl.geq"
+                    :lt => "xl.lt"
+                    :gt => "xl.gt"
+                end
+
+                "$func($(c(lhs)), $(c(rhs)))"
+            end
+        end
+        # ExcelExpr(:eq, [lhs, rhs]) => "xl.eq($(c(lhs)), $(c(rhs)))"
+        # ExcelExpr(:neq, [lhs, rhs]) => "not xl.eq($(c(lhs)), $(c(rhs)))"
+        # ExcelExpr(:leq, [lhs, rhs]) => "xl.leq($(c(lhs)), $(c(rhs)))"
+        # ExcelExpr(:geq, [lhs, rhs]) => "xl.geq($(c(lhs)), $(c(rhs)))"
+        # ExcelExpr(:lt, [lhs, rhs]) => "xl.lt($(c(lhs)), $(c(rhs)))"
+        # ExcelExpr(:gt, [lhs, rhs]) => "xl.gt($(c(lhs)), $(c(rhs)))"
         _ => missing
     end
 end
@@ -387,7 +425,7 @@ function handle(::EverythingElseHandler, expr::ExcelExpr, exporter::PythonExport
             "[" * join(output, ", ") * "]"
         end
     end
-    func = a -> convert(exporter, a, ctx)
+    func = a -> convert(exporter, a, withbindingaffinity(ctx, -1))
     # @show expr
 
     @match expr begin
