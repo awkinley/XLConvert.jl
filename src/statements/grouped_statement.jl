@@ -328,6 +328,10 @@ function export_looped(exporter::JuliaExporter, wb::ExcelWorkbook, statements)
     col_nums = map(s -> colnum(s[1]), set_cells)
     drow = diff(row_nums)
     dcol = diff(col_nums)
+
+    @assert all(==(drow[1]), drow)
+    @assert all(==(dcol[1]), dcol)
+
     row_offset = drow[1]
     col_offset = dcol[1]
     lhs_exprs = map(s -> s.lhs_expr, statements)
@@ -547,7 +551,7 @@ function export_looped(exporter::PythonExporter, wb::ExcelWorkbook, statements)
     # show(stdout, "text/plain", rhs_expr)
 
     custom_handler = CustomFuncParamHandler(get_param_str)
-    custom_exporter = PythonExporter(exporter.wb, exporter.var_names, exporter.tables, exporter.named_values, [custom_handler, exporter.handlers...], exporter.cell_types)
+    custom_exporter = with_handler(exporter, custom_handler)
 
     r_name = if row_offset == 0
         repr(row_name(table, first(row_idx)))
@@ -799,122 +803,6 @@ function export_with_for_loops(exporter, wb::ExcelWorkbook, statement::GroupedSt
     reduce(*, lines)
 end
 
-function try_make_for_loop(exporter::T, wb::ExcelWorkbook, statement::GroupedStatement) where T
-    sub_statements = statement.sub_statements
-
-    function_usages = Dict()
-    for s in sub_statements
-        func, params = functionalize(s.rhs_expr, [])
-        if func in keys(function_usages)
-            push!(function_usages[func], (s, params))
-        else
-            function_usages[func] = [(s, params)]
-        end
-    end
-    usage_counts = collect(zip(keys(function_usages), length.(values(function_usages))))
-    sort!(usage_counts, rev = true, by = v -> v[2])
-    # @show usage_counts
-
-    most_used_func = usage_counts[1][1]
-    # @show most_used_func
-
-    usage_list = function_usages[most_used_func]
-    params = reduce(vcat, map(s -> s[2], usage_list))
-    # @show size(params)
-    # @show params[1]
-    param_sets = unique.(eachcol(params))
-    fixed_params = findall(length.(param_sets) .== 1)
-    changing_params = findall(length.(param_sets) .!= 1)
-
-    usage_stmts = map(s -> s[1], usage_list)
-    if any(!(s isa TableStatement) for s in usage_stmts)
-        println("Failed because not every statement was a table statement")
-        return missing
-    end
-
-    set_cells = get_set_cells.(usage_stmts)
-    row_nums = map(s -> rownum(s[1]), set_cells)
-    col_nums = map(s -> colnum(s[1]), set_cells)
-    drow = diff(row_nums)
-    dcol = diff(col_nums)
-    if !all(drow .== drow[1]) || !all(dcol .== dcol[1])
-        println("Failed because there is not a consistent offset")
-        return missing
-    end
-    row_offset = drow[1]
-    col_offset = dcol[1]
-
-    # if !all(can_be_for_looped.(eachcol(params[:, changing_params]), row_offset, col_offset))
-    if !all(x -> can_be_for_looped(x, row_offset, col_offset), eachcol(params[:, changing_params]))
-        println("Failed because a changing parameter couldn't be for looped")
-        for x in eachcol(params[:, changing_params])
-            println(x)
-        end
-        return missing
-    end
-
-    lhs_exprs = map(s -> s.lhs_expr, usage_stmts)
-
-    if !(can_be_for_looped(lhs_exprs, row_offset, col_offset))
-        println("Failed because the lhs_expr couldn't be for looped")
-        return missing
-    end
-
-    lhs_expr = lhs_exprs[1]
-
-    table, row_idx, col_idx, _, _ = lhs_expr.args
-
-    row_str = make_loop_idx_str(row_idx, row_offset)
-    col_str = make_loop_idx_str(col_idx, col_offset)
-    lhs_str = "$(getname(table))[$row_str, $col_str]"
-    # println("\t$str")
-
-    function get_param_str(param_num, exporter, ctx)
-        if param_num in changing_params
-            param_expr = params[1, param_num]
-            table, row_idx, col_idx, _, _ = param_expr.args
-            row_str = make_loop_idx_str(row_idx, row_offset)
-            col_str = make_loop_idx_str(col_idx, col_offset)
-            "$(getname(table))[$row_str, $col_str]"
-        else
-            throw("Tried to get param_str for param_num $param_num, but it wasn't a changing param")
-        end
-    end
-
-    fixed_params_dict = Dict(fixed_params .=> map(v -> v[1], param_sets[fixed_params]))
-    rhs_expr = replace_func_params(most_used_func, fixed_params_dict)
-    typed_params = Dict{Int64, ExcelExpr}()
-    for param_num in changing_params
-        all_exprs = params[:, param_num]
-        param_type = reduce(union_types, map(e -> get_type(e, table.sheet_name, exporter.cell_types, exporter.named_values), all_exprs))
-        typed_params[param_num] = ExcelExpr(:func_param, param_num, param_type)
-    end
-    rhs_expr = replace_func_params(rhs_expr, typed_params)
-
-    custom_handler = CustomFuncParamHandler(get_param_str)
-    custom_exporter = T(exporter.wb, exporter.var_names, exporter.tables, exporter.named_values, [custom_handler, exporter.handlers...], exporter.cell_types)
-    rhs_str = convert(custom_exporter, rhs_expr, table.sheet_name)
-    """
-    for i in 0:$(length(usage_stmts) - 1)
-    \t$lhs_str = $rhs_str
-    end
-    """
-end
-
-function get_grouped_statement_body(exporter, wb::ExcelWorkbook, statement::GroupedStatement)
-    export_with_for_loops(exporter, wb, statement)
-    # try
-    #     body = try_make_for_loop(exporter, wb, statement)
-    # catch exception
-    #     @warn "Failed to make grouped statement into for loop because of exception: " exception
-    #     # throw(exception)
-    #     body = missing
-    # end
-    # if ismissing(body)
-    #     body = reduce(*, [export_statement(exporter, wb, s) for s in statement.sub_statements])
-    # end
-    # body
-end
 
 function get_function_name(exporter, statement::GroupedStatement)
     cell_for_naming = get_set_cells(statement)[end]
@@ -960,7 +848,7 @@ function get_function_string(exporter::JuliaExporter, wb::ExcelWorkbook, stateme
     # params_str = join(scope_vars, ", ")
     params_str = get_params_str(exporter, statement)
 
-    middle_lines = get_grouped_statement_body(exporter, wb, statement)
+    middle_lines = export_with_for_loops(exporter, wb, statement)
     # middle_lines = reduce(*, [export_statement(exporter, wb, s) for s in statement.sub_statements])
 
     lines = split(middle_lines, "\n")
@@ -985,7 +873,7 @@ function get_function_string(exporter::PythonExporter, wb::ExcelWorkbook, statem
     function_name = get_function_name(exporter, statement)
     params_str = get_params_str(exporter, statement)
 
-    middle_lines = get_grouped_statement_body(exporter, wb, statement)
+    middle_lines = export_with_for_loops(exporter, wb, statement)
 
     lines = split(middle_lines, "\n")
     function_inner = join(["\t" * l for l in lines], "\n")
@@ -1014,7 +902,7 @@ function export_statement(exporter::JuliaExporter, wb::ExcelWorkbook, statement:
     table_sub_stmts = filter(s -> s isa TableStatement, statement.sub_statements)
     if length(table_sub_stmts) != length(statement.sub_statements) || length(unique(get_set_table.(table_sub_stmts))) != 1
         # middle_lines = reduce(*, [export_statement(exporter, wb, s) for s in statement.sub_statements])
-        middle_lines = get_grouped_statement_body(exporter, wb, statement)
+        middle_lines = export_with_for_loops(exporter, wb, statement)
         """
         # Group of $(length(statement.sub_statements)) statements
         begin
@@ -1061,7 +949,7 @@ function export_statement(exporter::PythonExporter, wb::ExcelWorkbook, statement
     table_sub_stmts = filter(s -> s isa TableStatement, statement.sub_statements)
     if length(table_sub_stmts) != length(statement.sub_statements) || length(unique(get_set_table.(table_sub_stmts))) != 1
         # middle_lines = reduce(*, [export_statement(exporter, wb, s) for s in statement.sub_statements])
-        middle_lines = get_grouped_statement_body(exporter, wb, statement)
+        middle_lines = export_with_for_loops(exporter, wb, statement)
         """
         # Group of $(length(statement.sub_statements)) statements
         $middle_lines
