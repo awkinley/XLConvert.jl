@@ -28,74 +28,10 @@ function Base.show(io::IO, stmt::BroadcastedStatement)
     print(io, "BroadcastedStatement([$assigned_cells)]")
 end
 
-struct TableRef
-    table::ExcelTable
-    row::Any
-    col::Any
-end
-
-get_table(t::TableRef) = t.table
-get_rows(t::TableRef) = t.row
-get_cols(t::TableRef) = t.col
-
-function cell_dep(t::TableRef)
-    @assert length(t.row) == 1 && length(t.col) == 1
-
-    tbl = t.table
-    CellDependency(tbl.sheet_name, startcol(tbl) + first(t.col) - 1, startrow(tbl) + first(t.row) - 1)
-end
-
-function TableRef(expr::ExcelExpr)
-    @match expr begin
-        ExcelExpr(:table_ref, [table, row_idx, col_idx, _, _]) => TableRef(table, row_idx, col_idx)
-        _ => throw("tried to convert an invalid ExcelExpr to a TableRef $expr")
-    end
-end
-
 function indent_str(str::AbstractString, indent::Int)
     string('\t'^indent, str)
 end
 
-
-function make_index_str(vars, coeffs, offset)
-    out = ""
-    for (name, coeff) in zip(vars, coeffs)
-        if coeff == 0
-            continue
-        end
-        
-        if !isempty(out)
-            out *= " + "
-        end
-
-        if coeff == 1
-            out *= name
-        else
-            out *= "$coeff * $name"
-        end
-    end
-
-
-    # normalize out slices of length 1
-    if length(offset) == 1
-        offset = first(offset)
-    end
-
-    if offset isa Integer
-        if offset != 0
-            if !isempty(out)
-                out *= " + "
-            end
-
-            out *= "$offset"
-        end
-    else
-        out = "($out + $(first(offset))):($out + $(last(offset)))"
-    end
-
-
-    out
-end
 
 function make_assertion_string(exporter::PythonExporter, statement::BroadcastedStatement, xf)
     table, lhs_row_idx, lhs_col_idx = @match statement.lhs_expr begin
@@ -415,8 +351,6 @@ function export_statement(exporter::PythonExporter, wb::ExcelWorkbook, statement
 
     all_tables_the_same = all([get_table(lhs_table_ref)] .== get_table.(param_table_refs))
     all_start_row_the_same = all([first(get_rows(lhs_table_ref))] .== get_rows.(param_table_refs))
-    # @show get_rows(lhs_table_ref)
-    # @display get_rows.(param_table_refs)
 
 
     # push!(lines, "# all_tables_the_same = $all_tables_the_same")
@@ -442,31 +376,18 @@ function export_statement(exporter::PythonExporter, wb::ExcelWorkbook, statement
     # if all_tables_the_same && all_start_row_the_same && num_cols == 1 && num_rows >= 1
     #     println("All param tables are the same")
     # end
+    col_iter = DimIterator(lhs_table_ref, 2, "i", "col")
+    row_iter = DimIterator(lhs_table_ref, 1, "j", "row")
 
-
-    tbl_name = getname(table)
-    lhs_expr = ExcelExpr(:table_ref, [table, lhs_row_idx, lhs_col_idx, (false, false), (false, false)])
-    lhs = convert(exporter, lhs_expr, table.sheet_name)
-    column_iterator = if length(lhs_col_idx) == size(table)[2]
-        "$tbl_name.columns"
-    else
-        start = column_name(table, first(lhs_col_idx)) |> repr
-        stop = column_name(table, last(lhs_col_idx)) |> repr
-        "$tbl_name.loc[:, $start:$stop].columns"
-    end
-    col_loop = "for i, col in enumerate($column_iterator):"
-
-    row_loop = if needs_index
-        "for j, row in enumerate($(lhs).index):"
-    else
-        "for row in $(lhs).index:"
-    end
     indent = 0
-    if num_cols > 1
+
+    if length(col_iter) > 1
+        col_loop = make_for_loop_str(col_iter, exporter)
         push!(lines, "$(indent_str(col_loop, indent))")
         indent += 1
     end
-    if num_rows > 1
+    if length(row_iter) > 1
+        row_loop = make_for_loop_str(row_iter, exporter, needs_index=needs_index)
         push!(lines, "$(indent_str(row_loop, indent))")
         indent += 1
     end
@@ -474,90 +395,17 @@ function export_statement(exporter::PythonExporter, wb::ExcelWorkbook, statement
 
     param_index_strs = Dict{Int, String}()
     for (i, table_ref) in zip(findall(changing), param_table_refs)
-        param = statement.params[1, 1, i]
-        behavior = param_broadcast_behavior[i, :]
-        # push!(lines, "# param = $(param) -- behavior = $(behavior)")
-        row_behavior, col_behavior = behavior
-        param_table = get_table(table_ref)
-        row_idx = get_rows(table_ref)
+        # row_behavior = (change when incrementing the lhs row, change when incrementing the lhs col)
+        row_behavior, col_behavior = param_broadcast_behavior[i, :]
 
-        row_is_num = false
+        row_index = make_row_index(table_ref, row_behavior, row_iter, col_iter)
+        col_index = make_col_index(table_ref, col_behavior, row_iter, col_iter)
 
-        row_loc = if row_behavior == (0, 0)
-            row_names = row_name.(Ref(param_table), row_idx)
-            if length(row_idx) == size(param_table)[1]
-                ":"
-            elseif length(row_idx) == 1
-                "$(repr(row_names))"
-            else
-                "$(repr(first(row_names))):$(repr(last(row_names)))"
-            end
-        elseif param_table == get_table(lhs_table_ref) && first(get_rows(lhs_table_ref)) == get_rows(table_ref)
-            "row"
-        elseif get_row_names(param_table) === get_row_names(get_table(lhs_table_ref)) && first(get_rows(lhs_table_ref)) == get_rows(table_ref)
-            println("BroadcastedStatement, indexing on row in a different table, because row names are equal")
-            "row"
-        else
-            row_is_num = true
-            make_index_str(["j", "i"], row_behavior, row_idx .- 1)
-        end
+        table_index = TableIndex(get_table(table_ref), row_index, col_index)
 
-        col_idx = get_cols(table_ref)
-
-        col_is_num = false
-        col_loc = if col_behavior == (0, 0)
-            col_names = column_name.(Ref(param_table), col_idx)
-            if length(col_idx) == 1
-                "$(repr(col_names))"
-            elseif length(col_idx) == size(param_table)[2]
-                ":"
-            else
-                "$(repr(first(col_names))):$(repr(last(col_names)))"
-            end
-        elseif param_table == get_table(lhs_table_ref) && first(get_cols(lhs_table_ref)) == get_cols(table_ref)
-            # println("BroadcastedStatement, indexing on col because tables are equal and column offsets are equal")
-            "col"
-        elseif get_column_names(param_table) === get_column_names(get_table(lhs_table_ref)) && first(get_cols(lhs_table_ref)) == get_cols(table_ref)
-            println("BroadcastedStatement, indexing on col in a different table, because col names are equal")
-            "col"
-        else
-            i_coeff, j_coeff = col_behavior
-            col_is_num = true
-            make_index_str(["j", "i"], col_behavior, col_idx .- 1)
-        end
-
-        param_rows = length(row_idx)
-        param_cols = length(col_idx)
-        # push!(lines, "# col_loc = $col_loc")
-        index_str = @match (row_is_num, col_is_num) begin
-            (false, false) => begin
-                if param_rows == param_cols == 1
-                    ".at[$row_loc, $col_loc]"
-                else
-                    ".loc[$row_loc, $col_loc]"
-                end
-            end
-            (true, false) => begin
-                if size(param_table)[2] == 1
-                    ".iloc[$row_loc, 0]"
-                else
-                    ".loc[:, $col_loc].iloc[$row_loc]"
-                end
-            end
-            (false, true) => begin
-                if param_rows == 1 && (size(param_table)[1] != 1)
-                    ".loc[$row_loc].iloc[$col_loc]"
-                elseif param_rows ==1 && (size(param_table)[1] == 1)
-                    ".iloc[0, $col_loc]"
-                else
-                    ".loc[$row_loc].iloc[:, $col_loc]"
-                end
-            end
-            (true, true) => ".iloc[$row_loc, $col_loc]"
-        end
-
-        param_index_strs[i] = getname(param_table) * index_str
+        param_index_strs[i] = to_string(table_index, exporter)
     end
+
 
     function get_param_str(param_num, exporter, ctx)
         if changing[param_num]

@@ -152,6 +152,155 @@ function handle(::BasicOpHandler, expr::ExcelExpr, exporter::PythonExporter, ctx
     end
 end
 
+function get_table_dim_label(tbl::ExcelTable, idx::Int, dim::Symbol)
+    @match dim begin
+        :row => row_name(tbl, idx)
+        :col => column_name(tbl, idx)
+        _ => throw("dim $dim not recognized as :row or :col")
+    end
+end
+function get_table_dim_label(tbl::ExcelTable, idx::AbstractArray, dim::Symbol)
+    @match dim begin
+        :row => row_name.(Ref(tbl), idx)
+        :col => column_name.(Ref(tbl), idx)
+        _ => throw("dim $dim not recognized as :row or :col")
+    end
+end
+
+function tbl_idx_to_str(tbl::ExcelTable, idx::Int, dim::Symbol, ::PythonExporter) 
+    repr(get_table_dim_label(tbl, idx, dim)), false
+end
+
+function dim_to_axis_num(dim::Symbol)
+    @match dim begin
+        :row => 1
+        :col => 2
+        _ => throw("dim $dim not recognized as :row or :col")
+    end
+
+end
+
+function tbl_idx_to_str(tbl::ExcelTable, idx::UnitRange{Int}, dim::Symbol, exporter::PythonExporter) 
+    if length(idx) == 1
+        return tbl_idx_to_str(tbl, first(idx), dim, exporter)
+    end
+
+    tbl_dim_len = size(tbl)[dim_to_axis_num(dim)]
+    if length(idx) == tbl_dim_len
+        ":", false
+    else
+        string(tbl_idx_to_str(tbl, first(idx), dim, exporter)[1], ":", tbl_idx_to_str(tbl, last(idx), dim, exporter)[1]), false
+    end
+end
+
+function make_index_str(vars, coeffs, offset)
+    out = ""
+    for (name, coeff) in zip(vars, coeffs)
+        if coeff == 0
+            continue
+        end
+        
+        if !isempty(out)
+            out *= " + "
+        end
+
+        if coeff == 1
+            out *= name
+        else
+            out *= "$coeff * $name"
+        end
+    end
+
+
+    # normalize out slices of length 1
+    if length(offset) == 1
+        offset = first(offset)
+    end
+
+    if offset isa Integer
+        if offset != 0
+            if !isempty(out)
+                out *= " + "
+            end
+
+            out *= "$offset"
+        end
+    else
+        @assert offset isa UnitRange{Int}
+        out = "($out + $(first(offset))):($out + $(last(offset)))"
+    end
+
+
+    out
+end
+
+function tbl_idx_to_str(tbl::ExcelTable, idx::IterOffsetIndex, dim::Symbol, exporter::PythonExporter) 
+    vars = [iter.index_var for iter in idx.iters]
+    coeffs = idx.offsets
+
+    # if we're going to use the DimIter label
+    # we need to only have one dim iter
+    # the labels of the DimIter need to match the table we're indexing
+    # we need to only reference a single value (not a range)
+    if length(idx.iters) == 1 && length(idx.base_index) == 1
+        iter = idx.iters[1]
+        base_idx = first(idx.base_index)
+        ref_label = get_table_dim_label(tbl, base_idx:(base_idx + length(iter) - 1), dim)
+
+        if all(labels(iter) .== ref_label)
+            return iter.label_var, false
+        end
+    end
+
+    make_index_str(vars, idx.offsets, idx.base_index .- 1), true
+end
+
+
+function to_string(table_index::TableIndex, exporter::PythonExporter)
+    table = table_index.table
+
+    row_idx = table_index.row_index
+    col_idx = table_index.col_index
+    row_loc, row_is_num = tbl_idx_to_str(table, row_idx, :row, exporter)
+    col_loc, col_is_num = tbl_idx_to_str(table, col_idx, :col, exporter)
+
+    param_rows = length(row_idx)
+    param_cols = length(col_idx)
+
+    index_str = @match (row_is_num, col_is_num) begin
+        (false, false) => begin
+            if param_rows == param_cols == 1
+                ".at[$row_loc, $col_loc]"
+            else
+                ".loc[$row_loc, $col_loc]"
+            end
+        end
+        (true, false) => begin
+            if size(table)[2] == 1
+                ".iloc[$row_loc, 0]"
+            else
+                ".loc[:, $col_loc].iloc[$row_loc]"
+            end
+        end
+        (false, true) => begin
+            if param_rows == 1 && (size(table)[1] != 1)
+                ".loc[$row_loc].iloc[$col_loc]"
+            elseif param_rows ==1 && (size(table)[1] == 1)
+                ".iloc[0, $col_loc]"
+            else
+                ".loc[$row_loc].iloc[:, $col_loc]"
+            end
+        end
+        (true, true) => ".iloc[$row_loc, $col_loc]"
+    end
+
+    # instead of .loc[:, column_name] we can just do  [column_name]
+    if !col_is_num && param_rows == size(table)[1]
+        index_str = "[$col_loc]"
+    end
+
+    getname(table) * index_str
+end
 
 
 function handle(::TableRefHandler, expr::ExcelExpr, exporter::PythonExporter, ctx)
@@ -217,74 +366,8 @@ function handle(::TableRefHandler, expr::ExcelExpr, exporter::PythonExporter, ct
             if is_transposed(table)
                 (row_idx, col_idx) = (col_idx, row_idx)
             end
-
-            # "$(getname(table))[$row_idx_str, $col_idx_str]"
-            col_name = [string(column_name(table, c)) for c in col_idx]
-            # if length(col_name) == 1
-            #     col_name = col_name[1]
-            # end
-
-            # if row_idx isa Int
-            #     row_idx = row_idx:row_idx
-            # end
-
-            # row_idx_str = if row_idx isa UnitRange{Int} && row_idx.start == 1 && row_idx.stop == size(table)[1]
-
-            col_idx_str = if col_name isa AbstractArray && length(col_name) == 1
-                repr(string(col_name[1]))
-            elseif col_idx isa UnitRange
-                # if length(col_idx) == 1 && size(table)[2] == 1
-                #     repr(col_name[begin])
-                if length(col_idx) == size(table)[2]
-                    ":"
-                else
-                    "$(repr(col_name[begin])):$(repr(col_name[end]))"
-                end
-            elseif col_name isa AbstractArray
-                repr(col_name)
-            elseif length(col_name) == 1
-                repr(string(col_name[1]))
-            else
-                repr(string(col_name))
-            end
-
-            row_names = row_name.(Ref(table), row_idx)
-            # row_names = [string(row_name(table, r)) for r in row_idx]
-                
-            row_idx_str = if row_idx == 1:size(table)[1]
-                if length(col_idx) == 1
-                    return "$(getname(table))[$col_idx_str]"
-                # elseif length(row_idx) == 1
-                #     repr(row_names[begin])
-                else
-                    ":"
-                end
-            # elseif row_idx isa Int && length(row_idx) > 1
-            elseif length(row_idx) > 1
-                # Want to avoid slicing into a DataFrameRow, becaue that doesn't broadcast
-                "$(repr(row_names[begin])):$(repr(row_names[end]))"
-                # repr(row_idx:row_idx)
-                # elseif row_idx isa UnitRange{Int} && row_idx.start == row_idx.stop
-                #     repr(row_idx.start)
-            else
-                name = row_names isa AbstractString ? row_names : first(row_names)
-                # name = first(row_names)
-                if name isa Integer
-                    string(name)
-                else
-                    repr(name)
-                end
-                # repr(row_names[1])
-                # repr(row_idx)
-            end
-
-            indexer = if length(row_idx) == 1 && length(col_idx) == 1
-                "at"
-            else
-                "loc"
-            end
-
-            "$(getname(table)).$indexer[$row_idx_str, $col_idx_str]"
+            tbl_index = TableIndex(table, row_idx, col_idx)
+            to_string(tbl_index, exporter)
         end
         _ => missing
     end
