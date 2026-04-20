@@ -860,8 +860,12 @@ function get_function_string(exporter::JuliaExporter, wb::ExcelWorkbook, stateme
     end"""
 end
 
+statement_sets_table(::AbstractStatement) = false
+statement_sets_table(::TableStatement) = true
+statement_sets_table(::BroadcastedStatement) = true
+
 function get_function_string(exporter::PythonExporter, wb::ExcelWorkbook, statement::GroupedStatement)
-    table_sub_stmts = filter(s -> s isa TableStatement, statement.sub_statements)
+    table_sub_stmts = filter(statement_sets_table, statement.sub_statements)
     if length(table_sub_stmts) != length(statement.sub_statements)
         return nothing
     end
@@ -946,7 +950,7 @@ function export_statement(exporter::PythonExporter, wb::ExcelWorkbook, statement
     # end
 
 
-    table_sub_stmts = filter(s -> s isa TableStatement, statement.sub_statements)
+    table_sub_stmts = filter(statement_sets_table, statement.sub_statements)
     if length(table_sub_stmts) != length(statement.sub_statements) || length(unique(get_set_table.(table_sub_stmts))) != 1
         # middle_lines = reduce(*, [export_statement(exporter, wb, s) for s in statement.sub_statements])
         middle_lines = export_with_for_loops(exporter, wb, statement)
