@@ -825,8 +825,9 @@ function get_params_str(exporter, statement::GroupedStatement)
 end
 
 
+
 function get_function_string(exporter::JuliaExporter, wb::ExcelWorkbook, statement::GroupedStatement)
-    table_sub_stmts = filter(s -> s isa TableStatement || s isa BroadcastedStatement, statement.sub_statements)
+    table_sub_stmts = filter(statement_sets_table, statement.sub_statements)
     if length(table_sub_stmts) != length(statement.sub_statements)
         return nothing
     end
@@ -860,9 +861,6 @@ function get_function_string(exporter::JuliaExporter, wb::ExcelWorkbook, stateme
     end"""
 end
 
-statement_sets_table(::AbstractStatement) = false
-statement_sets_table(::TableStatement) = true
-statement_sets_table(::BroadcastedStatement) = true
 
 function get_function_string(exporter::PythonExporter, wb::ExcelWorkbook, statement::GroupedStatement)
     table_sub_stmts = filter(statement_sets_table, statement.sub_statements)

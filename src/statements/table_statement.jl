@@ -7,6 +7,7 @@ mutable struct TableStatement <: AbstractStatement
     is_broadcast::Bool
 end
 
+statement_sets_table(::TableStatement) = true
 
 get_cell_deps(stmt::TableStatement) = stmt.rhs_dependencies
 get_set_cells(stmt::TableStatement) = stmt.assigned_vars

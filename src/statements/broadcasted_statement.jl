@@ -14,6 +14,8 @@ apply_expr_transform!(stmt::BroadcastedStatement, transform) = stmt.func_expr = 
 
 get_set_table(stmt::BroadcastedStatement) = stmt.lhs_expr.args[1]
 
+statement_sets_table(::BroadcastedStatement) = true
+
 function to_string(exporter, statement::BroadcastedStatement)
     cell_ref = statement.assigned_vars[1]
     sheet = cell_ref.sheet_name

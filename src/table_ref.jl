@@ -193,37 +193,6 @@ function labels(dim_iter::DimIterator)
     end
 end
 
-function make_for_loop_str(dim_iter::DimIterator, exporter::PythonExporter; needs_index=true)
-    tbl_ref = dim_iter.table_ref
-    table = get_table(tbl_ref)
-    lhs_expr = ExcelExpr(:table_ref, [table, get_rows(tbl_ref), get_cols(tbl_ref), (false, false), (false, false)])
-    lhs = convert(exporter, lhs_expr, table.sheet_name)
-
-    iterator = if dim_iter.dim == 1
-        lhs * ".index"
-    elseif dim_iter.dim == 2
-        dim_iter.table_ref.col
-        cols = get_cols(tbl_ref)
-        tbl_name = getname(table)
-        if length(cols) == size(table)[2]
-            "$tbl_name.columns"
-        else
-            start = column_name(table, first(cols)) |> repr
-            stop = column_name(table, last(cols)) |> repr
-            "$tbl_name.loc[:, $start:$stop].columns"
-        end
-    else
-        throw("DimIterator dim must be 1 or 2, was $(dim_iter.dim)")
-    end
-
-    if needs_index
-        "for $(dim_iter.index_var), $(dim_iter.label_var) in enumerate($iterator):"
-    else
-        "for $(dim_iter.label_var) in $iterator:"
-    end
-
-end
-
 struct IterOffsetIndex
     base_index::Union{Int, UnitRange}
     iters::Vector{DimIterator}

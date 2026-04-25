@@ -17,6 +17,8 @@ If you're supporting multiple exporters, you probably want a different definitio
 """
 abstract type AbstractStatement end;
 
+statement_sets_table(::AbstractStatement) = false
+
 include("./statements/standard_statement.jl")
 include("./statements/output_statement.jl")
 include("./statements/table_statement.jl")
