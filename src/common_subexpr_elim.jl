@@ -49,6 +49,8 @@ function common_subexpression_elimination(expr::XLConvert.FlatExpr)
     duplicate_parts = Vector{Int}()
     seen_parts = Set{XLConvert.ExcelExpr}()
 
+    # lowest level leaf equivalence groups
+    # currently computed in O(N^2), which isn't optimal
     equiv_groups = []
 
     for (i, part) in enumerate(expr.parts)
@@ -65,9 +67,12 @@ function common_subexpression_elimination(expr::XLConvert.FlatExpr)
         end
     end
 
-
+    # dictionary of "equivalent" expression parts
+    # equivalent mean that their sub-trees match
+    # contains the full list for every tree node
     part_equivalences = Dict{Int, Set{Int}}()
 
+    # fill part_equivalences for leaf nodes based on equiv_groups
     for g in equiv_groups
         # println("Group of size $(length(g))")
         s = Set(g)
@@ -78,6 +83,10 @@ function common_subexpression_elimination(expr::XLConvert.FlatExpr)
     end
 
 
+    # go backwards through the expression parts
+    # are_same_expr determines sub-tree equivalence
+    # going backwards means this can be O(N)
+    # filling in part_equivalences
     for (i, part) in Iterators.reverse(enumerate(expr.parts))
         i in keys(part_equivalences) && continue
         i == 1 && continue
@@ -94,6 +103,9 @@ function common_subexpression_elimination(expr::XLConvert.FlatExpr)
         end
     end
 
+    # not sure if this part is necessary
+    # it's basically a recomputation of part_equivalences to ensure full mapping
+    # but it seems like this should be maintained?
     for g in unique(values(part_equivalences))
         # println("Group of size $(length(g))")
         s = Set(g)
@@ -103,12 +115,13 @@ function common_subexpression_elimination(expr::XLConvert.FlatExpr)
         end
     end
 
-    # @show part_equivalences
-    # @show equiv_groups
+    # @display part_equivalences
+    # @display equiv_groups
 
     new_parts = Vector{XLConvert.ExcelExpr}()
 
     equivalent_subexpr_groups = vec(unique(values(part_equivalences)))
+    
 
     # For every group of equivalent subexpressions:
     #
@@ -144,6 +157,8 @@ function common_subexpression_elimination(expr::XLConvert.FlatExpr)
         end
     end
 
+    # @display required_groups
+
 
     sub_exprs = Vector{XLConvert.FlatExpr}()
     subexpr_mapping = Dict()
@@ -169,7 +184,7 @@ function common_subexpression_elimination(expr::XLConvert.FlatExpr)
             end
         end
 
-        if length(sub_parts) > 1
+        if length(sub_parts) >= 1
             for g in group
                 subexpr_mapping[g] = i
             end
@@ -198,7 +213,8 @@ function common_subexpression_elimination(expr::XLConvert.FlatExpr)
         for (i, arg) in enumerate(new_args)
             if arg isa FlatIdx
                 if arg.i in keys(subexpr_mapping)
-                    new_args[i] = ExcelExpr(:func_param, Any[subexpr_mapping[arg.i]])
+                    # new_args[i] = ExcelExpr(:func_param, Any[subexpr_mapping[arg.i]])
+                    new_args[i] = ExcelExpr(:var_ref, Any[subexpr_mapping[arg.i]])
                 else
 
                     offset = 0

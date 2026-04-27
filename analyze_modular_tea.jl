@@ -791,7 +791,7 @@ end
 
 function read_wb()
     # file = "scope=3.0_aspect=2.0_TEA.xlsm"
-    file = "Modular TEA - master - v1.25.xlsm"
+    file = "Modular TEA - master - v1.25e.xlsm"
     wb = parse_workbook(file)
 
     # println("\n", "="^10, "Formula Replacements", "="^10)
@@ -1660,6 +1660,7 @@ function make_operations_tables(xf)
         ("vessel_days_rented", "D425", "E436", 336, "B"),
         ("annual_costs", "D307", "Q315", 3, "B"),
         ("total_costs", "R307", "R315", 306, "B"),
+        ("weeks_per_month", "U140", "U151", 139, "T"),
     ])
     add_tables!(tables, xf, "Operations", [
         ("month_info", "T109", "X132", 108),
@@ -1674,6 +1675,7 @@ function make_operations_tables(xf)
     add_row_names_table!(tables, xf, "vsl_B_deck_hand_annual", "vsl_B_deck_hand_annual_rows")
     add_row_names_table!(tables, xf, "vsl_C_deck_hand_annual", "vsl_C_deck_hand_annual_rows")
     add_row_names_table!(tables, xf, "vessel_days_used", "vessel_days_used_rows")
+    add_row_names_table!(tables, xf, "weeks_per_month", "wpm_months")
     add_column_names_table!(tables, xf, "vessel_A", "vessel_A_cols")
     add_column_names_table!(tables, xf, "vessel_B", "vessel_B_col")
     add_column_names_table!(tables, xf, "vessel_C", "vessel_C_col")
@@ -1835,10 +1837,10 @@ function make_misc_tables(xf)
         ("workable_wave_height", "E42", "Q42", 41, "B"),
         ("weather_day_portion", "E43", "Q54", 41, "B"),
     ])
-    add_tables!(tables, xf, "standard tasks", [
-        ("structure_related", "B3", "AX66", 2, "F"),
-        ("equip_related", "B70", "Z143", 2, "F"),
-        ("equip_flags", "AA70", "BC143", 69),
+    add_tables!(tables, xf, "standard equip tasks", [
+        # ("structure_related", "B3", "AX66", 2, "F"),
+        ("equip_related", "B3", "Z76", 2, "F"),
+        ("equip_flags", "AA3", "BC76", 2, "F"),
     ])
     add_tables!(tables, xf, "material properties", [
         ("props", "C3", "W37", 2, "B"),
@@ -1853,7 +1855,7 @@ function make_misc_tables(xf)
         ("a_soils", "D82", "H82", 82),
     ])
     add_tables!(tables, xf, "growth- cohort group 1", [
-        ("growth", "B10", "BX157", 9),
+        ("growth", "B10", "CF157", 9),
     ])
 
     add_tables!(tables, xf, "Results", [
@@ -2039,6 +2041,9 @@ function get_subset(wb_in::XLConvert.ExcelWorkbook2)
     # target_output = CellDependency("Structure Calcs", "BO48")
     # target_output = CellDependency("Equip&Mat Calcs", "W65")
     # target_output = CellDependency("Operations", "R313")
+    # target_output = CellDependency("growth- cohort group 1", "BS115")
+
+    #target_output = CellDependency("growth- cohort group 1", "BU12")
 
     # target_output = CellDependency("vessels", "AA30")
     # all_target_outputs = [target_output, CellDependency("Structure Calcs", "CS6")]
@@ -2063,7 +2068,18 @@ function get_subset(wb_in::XLConvert.ExcelWorkbook2)
     append!(inputs, XLConvert.cells(WorkbookRegion("aggregated oyster growth", "J11", "K157")))
     append!(inputs, XLConvert.cells(WorkbookRegion("Structure Calcs", "FG5", "FH262")))
     append!(inputs, XLConvert.cells(WorkbookRegion("Operations", "F337", "H448")))
+    append!(inputs, XLConvert.cells(WorkbookRegion("oyster aquaculture", "K128", "M428")))
 
+    s = "growth- cohort group 1"
+    # v1.25
+    # subset_inputs = [
+    #     CellDependency(s, "BB12"), CellDependency(s, "BL12"), CellDependency(s, "Z12")
+    # ]
+    # v1.25e
+    # subset_inputs = [
+    #     CellDependency(s, "BJ12"), CellDependency(s, "BT12"), CellDependency(s, "AF12")
+    # ]
+    # @time used_subset = XLConvert.get_workbook_subset(wb, all_target_outputs, subset_inputs)
     @time used_subset = XLConvert.get_workbook_subset(wb, all_target_outputs)
 
     @time used_subset = XLConvert.force_cells_to_be_value(used_subset, inputs)
@@ -2110,8 +2126,22 @@ function make_tables(used_subset::XLConvert.ExcelWorkbook2)
     append!(tables, make_misc_tables(xf))
 
     extra_ranges = [
-        ("oyster Husbandry model", "A13", "JI25")
-        ("oyster Husbandry model", "A31", "JI116")
+        ("oyster Husbandry model", "A13", "KM25")
+        ("oyster Husbandry model", "A31", "HM116")
+        # max containers emptied per period
+        ("oyster Husbandry model", "HO31", "HV116")
+        # temp modifier, growth rate, biofouling thickness
+        ("oyster Husbandry model", "IC31", "IE116")
+        # soft tissue biofouling growth															
+        ("oyster Husbandry model", "IH31", "IR116")
+        # temp modifier, growth rate, biofouling thickness
+        ("oyster Husbandry model", "IT31", "IV116")
+        # hard shell biofouling growth (average organsism thickness )
+        ("oyster Husbandry model", "IY31", "JJ116")
+        # total biofouling growth (average thickness mm)
+        ("oyster Husbandry model", "JL31", "JV116")
+        # containers cleaned
+        ("oyster Husbandry model", "JY31", "KM116")
         ("oyster Husbandry model", "I29", "AF30")
         ("oyster Husbandry model", "I8", "AF9")
         ("oyster Husbandry model", "CK8", "DH11")
@@ -2124,6 +2154,8 @@ function make_tables(used_subset::XLConvert.ExcelWorkbook2)
         ("oyster Husbandry model", "GK28", "GU28")
         ("oyster Husbandry model", "AI30", "BF30")
         ("oyster Husbandry model", "CK30", "DZ30")
+        ("oyster Husbandry model", "IY7", "JI11")
+        ("oyster Husbandry model", "JL7", "JV11")
         # ("growth- cohort group 1", "B10", "BX157")
         ("growth- cohort group 2", "B11", "BX82")
         ("growth- cohort group 3", "B11", "BX82")
@@ -2219,6 +2251,7 @@ function generate_statements(used_subset::XLConvert.ExcelWorkbook2, tables)
         println("Group statements")
         println("-"^40)
         @time grouped_statements = group_statements(statements)
+
         println("-"^40)
         println("Group statements (again)")
         println("-"^40)
@@ -2571,7 +2604,7 @@ function analyze_table(wb::XLConvert.ExcelWorkbook2, table::XLConvert.ExcelTable
     is_input_mask = is_input.(cell_nums)
 
     num_inputs = count(is_input_mask)
-    println("$num_inputs / $total_cells cells are inputs ($(100 * num_inputs / total_cells)%)")
+    println("$num_inputs / $total_cells cells are inputs ($(100 * num_used / total_cells)%)")
     # println("Inputs:")
     # println(repr("text/plain", sparse(is_input_mask)))
     # @display sparse(is_input_mask)
@@ -2870,7 +2903,7 @@ function get_statements_and_tables(wb_in::XLConvert.ExcelWorkbook2)
         for cell in XLConvert.cells(region)
             stmt = get(cell_to_statement, cell, nothing)
             if isnothing(stmt)
-                println("$cell wasn't associated with a statement, whend oing missing to zero")
+                println("$cell wasn't associated with a statement, when doing missing to zero")
                 continue
             end
             if stmt isa XLConvert.TableStatement
@@ -2894,10 +2927,11 @@ function run(wb_in::XLConvert.ExcelWorkbook2)
 
     used_subset = wb
     statements, tables = get_statements_and_tables(wb_in)
+    statements = add_table_group_funcs(used_subset, statements)
 
-    export_statements(used_subset, statements, tables)
+    statements, exporter = export_statements(used_subset, statements, tables)
 
-    statements, tables
+    statements, tables, exporter
 end
 
 function debug_types_for_statement(wb, statements, cell_dep)
@@ -2957,3 +2991,83 @@ function get_long_exprs(wb::XLConvert.ExcelWorkbook)
 
 end
 
+function get_transitively_equal_runs(items, equality_condition)
+    ranges = Vector{UnitRange{Int}}()
+
+    if length(items) <= 1
+        return ranges
+    end
+
+    current_start = -1
+    for i in eachindex(items)[begin:end-1]
+        if equality_condition(items[i], items[i+1])
+            if current_start == -1
+                current_start = i
+            end
+        else
+            if current_start != -1
+                push!(ranges, current_start:i)
+            end
+
+            current_start = -1
+        end
+    end
+
+    if current_start != -1
+        push!(ranges, current_start:length(items))
+    end
+
+    ranges
+end
+
+function add_table_group_funcs(used_subset, statements)
+    global_affinity_order = XLConvert.get_global_affinity_order(used_subset, statements)
+
+    function transitive_equality(a::XLConvert.AbstractStatement, b::XLConvert.AbstractStatement)
+        if !all(XLConvert.statement_sets_table, [a, b])
+            return false
+        end
+
+        return XLConvert.get_set_table(a) == XLConvert.get_set_table(b)
+    end
+    ordered_statements = statements[global_affinity_order]
+    runs = get_transitively_equal_runs(ordered_statements, transitive_equality)
+    filter!(r -> length(r) >= 3, runs)
+    total_stmts = sum(length, runs)
+    println("Found $(length(runs)) runs, covering $total_stmts total statements")
+    @display runs
+
+    if isempty(runs)
+        return statements
+    end
+
+    new_statements = Vector{AbstractStatement}()
+    ordered_stmt_set = Set(ordered_statements)
+    append!(new_statements, filter(s -> !(s in ordered_stmt_set), statements))
+
+    if runs[1][1] > 1
+        append!(new_statements, ordered_statements[begin:(runs[1][1] - 1)])
+    end
+
+    for i in eachindex(runs)
+        run_stmts = ordered_statements[runs[i]]
+        if i == 50
+            @show transitive_equality(run_stmts[1], run_stmts[2])
+            @display run_stmts
+        end
+        push!(new_statements, XLConvert.GenericFunctionStatement("calculate_run_$i", run_stmts))
+
+        run_end = runs[i][end]
+        next_run_start = if i < length(runs)
+            runs[i + 1][begin]
+        else
+            length(ordered_statements) + 1
+        end
+
+        if run_end + 1 < next_run_start
+            append!(new_statements, ordered_statements[(run_end + 1):(next_run_start - 1)])
+        end
+    end
+
+    new_statements
+end

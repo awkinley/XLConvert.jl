@@ -182,6 +182,9 @@ function handle(handler::CustomFuncParamHandler, expr, exporter::JuliaExporter, 
         ExcelExpr(:func_param, [param_num, type]) => begin
             handler.value_getter(param_num, exporter, ctx)
         end
+        ExcelExpr(:var_ref, [param_num]) => begin
+            "param_$param_num"
+        end
         _ => missing
     end
 end
@@ -193,6 +196,9 @@ function handle(handler::CustomFuncParamHandler, expr, exporter::PythonExporter,
         end
         ExcelExpr(:func_param, [param_num, type]) => begin
             handler.value_getter(param_num, exporter, ctx)
+        end
+        ExcelExpr(:var_ref, [param_num]) => begin
+            "param_$param_num"
         end
         _ => missing
     end
@@ -564,7 +570,6 @@ function export_looped(exporter::PythonExporter, wb::ExcelWorkbook, statements)
         "$(getname(table)).columns[$(col_str)]"
     end
     name_handler = ColRowNameHandler(r_name, col_name)
-    rhs_str = convert(with_handler(custom_exporter, name_handler), rhs_expr, table.sheet_name)
 
     first_row = first(row_idx)
     last_row = first(row_idx) + row_offset * (length(statements) - 1)
@@ -573,12 +578,41 @@ function export_looped(exporter::PythonExporter, wb::ExcelWorkbook, statements)
     tbl_rows = min(first_row, last_row):max(first_row, last_row)
     tbl_cols = min(first_col, last_col):max(first_col, last_col)
     assertion_str = make_loop_assertion_string(exporter, wb.xf, TableRef(table, tbl_rows, tbl_cols))
-    """
-    for i in range($(length(statements))):
-    \t$lhs_str = $rhs_str
+    # assertion_str = ""
 
-    $assertion_str
-    """
+    # sub_exprs, new_expr = common_subexpression_elimination(rhs_expr)
+    # if (2 * length(sub_exprs) + length(new_expr.parts)) < length(rhs_expr.parts)
+    if false
+        @display rhs_expr
+        @display sub_exprs
+        @display new_expr
+
+        res = """
+        for i in range($(length(statements))):
+        """
+        for (i, sub) in enumerate(sub_exprs)
+            rhs = convert(with_handler(custom_exporter, name_handler), sub, table.sheet_name)
+            res *= "\tparam_$(i) = $rhs\n"
+        end
+        res *= "\n"
+
+        rhs_str = convert(with_handler(custom_exporter, name_handler), new_expr, table.sheet_name)
+        res *= "\t$lhs_str = $rhs_str\n"
+
+        res *= "\n" * assertion_str * "\n"
+
+        # \t$lhs_str = $rhs_str
+        res
+    else
+        rhs_str = convert(with_handler(custom_exporter, name_handler), rhs_expr, table.sheet_name)
+
+        """
+        for i in range($(length(statements))):
+        \t$lhs_str = $rhs_str
+
+        $assertion_str
+        """
+    end
 end
 
 function get_loop_end(statements_in::AbstractArray{AbstractStatement}, functionalized_in, start_i)
@@ -868,9 +902,9 @@ function get_function_string(exporter::PythonExporter, wb::ExcelWorkbook, statem
         return nothing
     end
 
-    if length(unique(get_set_table.(table_sub_stmts))) != 1
-        return nothing
-    end
+    # if length(unique(get_set_table.(table_sub_stmts))) != 1
+    #     return nothing
+    # end
 
     function_name = get_function_name(exporter, statement)
     params_str = get_params_str(exporter, statement)
@@ -949,7 +983,8 @@ function export_statement(exporter::PythonExporter, wb::ExcelWorkbook, statement
 
 
     table_sub_stmts = filter(statement_sets_table, statement.sub_statements)
-    if length(table_sub_stmts) != length(statement.sub_statements) || length(unique(get_set_table.(table_sub_stmts))) != 1
+    # if length(table_sub_stmts) != length(statement.sub_statements) || length(unique(get_set_table.(table_sub_stmts))) != 1
+    if length(table_sub_stmts) != length(statement.sub_statements)
         # middle_lines = reduce(*, [export_statement(exporter, wb, s) for s in statement.sub_statements])
         middle_lines = export_with_for_loops(exporter, wb, statement)
         """

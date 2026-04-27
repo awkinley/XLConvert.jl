@@ -158,10 +158,10 @@ Because somewhere in there we want simplifications like:
 
 """
 
+"""1 = row, 2 = col"""
 struct DimIterator
     table_ref::TableRef
     dim::Int
-    """1 = row, 2 = col"""
     index_var::String
     label_var::String
 end
@@ -206,14 +206,14 @@ struct IndexRange
     stop::Any
 end
 
+"An index can be of types such as:
+    - Int (for single index)
+    - UnitRange{Int, Int} (for slice)
+    - IterOffsetIndex
+    - IndexRange
+"
 struct TableIndex
     table::ExcelTable
-    "An index can be of types such as:
-        - Int (for single index)
-        - UnitRange{Int, Int} (for slice)
-        - IterOffsetIndex
-        - IndexRange
-    "
     row_index::Any
     col_index::Any
 end

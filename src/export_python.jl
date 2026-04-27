@@ -326,7 +326,7 @@ function to_string(table_index::TableIndex, exporter::PythonExporter)
     end
 
     # instead of .loc[:, column_name] we can just do  [column_name]
-    if !col_is_num && param_rows == size(table)[1]
+    if !col_is_num && param_rows == size(table)[1] && param_rows > 1 && param_cols == 1
         index_str = "[$col_loc]"
     end
 

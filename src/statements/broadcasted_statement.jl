@@ -368,6 +368,7 @@ function export_statement(exporter::PythonExporter, wb::ExcelWorkbook, statement
     if !isnothing(broadcast_lines)
         append!(lines, broadcast_lines)
         return join(lines, "\n") * "\n" * make_assertion_string(exporter, statement, wb.xf)
+        # return join(lines, "\n") * "\n" 
     end
     # if can_py_broadcast(base_expr)
 
@@ -449,4 +450,5 @@ function export_statement(exporter::PythonExporter, wb::ExcelWorkbook, statement
 
 
     join(lines, "\n") * "\n" * make_assertion_string(exporter, statement, wb.xf)
+    # join(lines, "\n") * "\n" 
 end

@@ -109,10 +109,6 @@ function export_statement(exporter::PythonExporter, wb::ExcelWorkbook, statement
         $lhs = $rhs # $(cell_ref.sheet_name) $(cell_ref.cell)
         assert xl.compare($lhs, $(value_str)) # $(to_string(cell_ref))
         """
-        # """
-        # # =$formula_str
-        # $lhs = $rhs # $(cell_ref.sheet_name) $(cell_ref.cell)
-        # """
 
     end
 

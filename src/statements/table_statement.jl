@@ -343,7 +343,8 @@ function export_statement(exporter::PythonExporter, wb::ExcelWorkbook, statement
     xf = wb.xf
 
     if statement.is_broadcast
-        export_for_loop(exporter, wb, statement, expr, sheet) * make_assertion_string(exporter, statement, xf)
+        # export_for_loop(exporter, wb, statement, expr, sheet) * make_assertion_string(exporter, statement, xf)
+        export_for_loop(exporter, wb, statement, expr, sheet)
         # if contains_if(expr)
         #     export_for_loop(exporter, wb, statement, expr, sheet) * make_assertion_string(exporter, statement, xf)
         # else
@@ -415,6 +416,7 @@ function export_statement(exporter::PythonExporter, wb::ExcelWorkbook, statement
         $(make_assertion_string(exporter, statement, xf))
         """
         # """
+        # # =$(get_formula_str(statement, xf))
         # $lhs = $rhs # $(cell_ref.sheet_name) $(cell_ref.cell) $row_str
         # """
     end

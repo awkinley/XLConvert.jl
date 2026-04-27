@@ -906,7 +906,7 @@ function make_statement_graph(statements::Vector{AbstractStatement})
                 @show cell
                 @show cell_to_statement[cell]
                 println("Statement", statement, "sets cell", cell)
-                println("but statement", cell_to_statement[cell], "already set that cell")
+                println("but statement ", cell_to_statement[cell], " already set that cell")
                 @assert !(cell in keys(cell_to_statement))
             end
 
@@ -964,6 +964,19 @@ function make_statement_graph(statements::Vector{AbstractStatement})
     # graph = Graphs.SimpleDiGraphFromIterator(edge_list)
     graph = Graphs.SimpleDiGraph(edge_list)
     # graph = Graphs.SimpleDiGraph(adj_matrix)
+    cycle = find_cycle(graph)
+    if !isnothing(cycle)
+        println("Found a cycle!")
+        for (i, node) in enumerate(cycle)
+            stmt = statements[node]
+            # println("\tStatement setting $(get_set_cells(stmt))")
+            # println("\t$i: $cell, $(get_cell_value(used_subset, cell))")
+            println("\t$i: $stmt")
+            # @display get_expr(used_subset.cell_dict[cell])
+        end
+        throw("statement graph had a cycle!")
+
+    end
 
     cycles = Graphs.simplecycles(graph)
     if !isempty(cycles)
@@ -1380,6 +1393,132 @@ function export_statements_levels_table_grouped(io::IO, exporter, wb::ExcelWorkb
     end
 end
 
+statement_table_key(stmt::AbstractStatement) = missing
+statement_table_key(stmt::TableStatement) = get_set_table(stmt)
+statement_table_key(stmt::BroadcastedStatement) = get_set_table(stmt)
+
+function get_global_affinity_order(wb::ExcelWorkbook, statements::AbstractArray{AbstractStatement})
+    stmt_graph = make_statement_graph(statements)
+    stmt_topo_levels = get_topo_levels_top_down(stmt_graph)
+    bottom_up_levels = get_topo_levels_bottom_up(stmt_graph)
+    input_statements = Set([kv.first for kv in bottom_up_levels if kv.second == 0])
+
+    active_indices = filter(i -> !(i in input_statements), collect(eachindex(statements)))
+    if isempty(active_indices)
+        # write(io, "# Global affinity schedule: no non-input statements to export.\n")
+        return Int64[]
+    end
+
+    function statement_sheet_key(stmt::AbstractStatement)
+        cells = get_set_cells(stmt)
+        isempty(cells) && return missing
+        base_sheet = string(cells[1].sheet_name)
+        if any(c -> string(c.sheet_name) != base_sheet, cells)
+            return "<mixed>"
+        end
+        base_sheet
+    end
+
+
+    max_level = maximum(values(stmt_topo_levels))
+    base_order = Int64[]
+    for level in 0:max_level
+        level_idxs = filter(i -> stmt_topo_levels[i] == level && (i in active_indices), eachindex(statements))
+        sort!(level_idxs, by = i -> isempty(get_set_cells(statements[i])) ? "" : string(get_set_cells(statements[i])[1]))
+        append!(base_order, level_idxs)
+    end
+    base_rank = Dict((idx => pos) for (pos, idx) in enumerate(base_order))
+
+    active_set = Set(active_indices)
+    pending_deps = Dict{Int64, Int64}()
+    for idx in active_indices
+        pending_deps[idx] = count(dep -> dep in active_set, outneighbors(stmt_graph, idx))
+    end
+
+    ready = [idx for idx in active_indices if pending_deps[idx] == 0]
+    sort!(ready, by = idx -> base_rank[idx])
+
+    table_weight = 100
+    sheet_weight = 15
+    max_event_diags = 300
+
+    last_table = missing
+    last_sheet = missing
+    ordered = Int64[]
+    event_diags = String[]
+
+    table_affinity_picks = 0
+    sheet_affinity_picks = 0
+    dual_affinity_picks = 0
+    base_picks = 0
+    ready_size_sum = 0
+    max_ready_size = 0
+
+    while !isempty(ready)
+        ready_size_sum += length(ready)
+        max_ready_size = max(max_ready_size, length(ready))
+
+        base_choice = ready[1]
+        chosen = base_choice
+        chosen_score = -1
+        chosen_table_match = false
+        chosen_sheet_match = false
+
+        for candidate in ready
+            cand_stmt = statements[candidate]
+            cand_table = statement_table_key(cand_stmt)
+            cand_sheet = statement_sheet_key(cand_stmt)
+
+            table_match = !ismissing(last_table) && !ismissing(cand_table) && cand_table == last_table
+            sheet_match = !ismissing(last_sheet) && !ismissing(cand_sheet) && cand_sheet == last_sheet
+            score = table_match * table_weight + sheet_match * sheet_weight
+
+            if score > chosen_score || (score == chosen_score && base_rank[candidate] < base_rank[chosen])
+                chosen = candidate
+                chosen_score = score
+                chosen_table_match = table_match
+                chosen_sheet_match = sheet_match
+            end
+        end
+
+        if chosen_score == 0 || chosen == base_choice
+            base_picks += 1
+        else
+            if chosen_table_match && chosen_sheet_match
+                dual_affinity_picks += 1
+            elseif chosen_table_match
+                table_affinity_picks += 1
+            elseif chosen_sheet_match
+                sheet_affinity_picks += 1
+            end
+
+            if length(event_diags) < max_event_diags
+                chosen_stmt = statements[chosen]
+            end
+        end
+
+        deleteat!(ready, findfirst(==(chosen), ready))
+        push!(ordered, chosen)
+
+        chosen_stmt = statements[chosen]
+        last_table = statement_table_key(chosen_stmt)
+        last_sheet = statement_sheet_key(chosen_stmt)
+
+        for user in inneighbors(stmt_graph, chosen)
+            if !(user in active_set)
+                continue
+            end
+            pending_deps[user] -= 1
+            if pending_deps[user] == 0
+                push!(ready, user)
+            end
+        end
+        sort!(ready, by = idx -> base_rank[idx])
+    end
+
+    return ordered
+end
+
 function export_statements_global_affinity(io::IO, exporter, wb::ExcelWorkbook, statements::AbstractArray{AbstractStatement})
     stmt_graph = make_statement_graph(statements)
     stmt_topo_levels = get_topo_levels_top_down(stmt_graph)
@@ -1402,9 +1541,6 @@ function export_statements_global_affinity(io::IO, exporter, wb::ExcelWorkbook, 
         base_sheet
     end
 
-    statement_table_key(stmt::AbstractStatement) = missing
-    statement_table_key(stmt::TableStatement) = get_set_table(stmt)
-    statement_table_key(stmt::BroadcastedStatement) = get_set_table(stmt)
 
     table_name(table) = try
         string(getname(table))
@@ -1463,7 +1599,7 @@ function export_statements_global_affinity(io::IO, exporter, wb::ExcelWorkbook, 
 
             table_match = !ismissing(last_table) && !ismissing(cand_table) && cand_table == last_table
             sheet_match = !ismissing(last_sheet) && !ismissing(cand_sheet) && cand_sheet == last_sheet
-            score = (table_match ? table_weight : 0) + (sheet_match ? sheet_weight : 0)
+            score = table_match * table_weight + sheet_match * sheet_weight
 
             if score > chosen_score || (score == chosen_score && base_rank[candidate] < base_rank[chosen])
                 chosen = candidate
@@ -1485,8 +1621,8 @@ function export_statements_global_affinity(io::IO, exporter, wb::ExcelWorkbook, 
             end
 
             if length(event_diags) < max_event_diags
-                reason = chosen_table_match && chosen_sheet_match ? "table+sheet" :
-                         chosen_table_match ? "table" : "sheet"
+                # reason = chosen_table_match && chosen_sheet_match ? "table+sheet" :
+                #          chosen_table_match ? "table" : "sheet"
                 chosen_stmt = statements[chosen]
                 chosen_table = statement_table_key(chosen_stmt)
                 chosen_sheet = statement_sheet_key(chosen_stmt)
@@ -1559,14 +1695,11 @@ function export_statements_global_affinity(io::IO, exporter, wb::ExcelWorkbook, 
 
         dependents = statements[inneighbors(stmt_graph, idx)]
         if !isempty(dependents)
-            # usages = "[" * join(to_string.((exporter,), dependents), ", ") * "]"
-            # write(io, "# Used in $(length(dependents)) places: $usages\n")
             usages = if length(dependents) > 3
                 "[" * join(to_string.((exporter,), dependents[1:2]), ", ") * ", ..., " * to_string(exporter, dependents[end]) * "]"
             else
                 "[" * join(to_string.((exporter,), dependents), ", ") * "]"
             end
-            # usages = "[" * join(to_string.((exporter,), dependents), ", ") * "]"
             write(io, "# Used in $(length(dependents)) places: $usages\n")
         end
 
@@ -2100,6 +2233,9 @@ function write_file(exporter::PythonExporter, file_name::AbstractString, wb::Exc
     #     """,
     # )
     for func_stmt in filter(s -> s isa FunctionStatement, statements)
+        write(output_file, get_function_string(exporter, wb, func_stmt), "\n")
+    end
+    for func_stmt in filter(s -> s isa GenericFunctionStatement, statements)
         write(output_file, get_function_string(exporter, wb, func_stmt), "\n")
     end
     for group_stmt in filter(s -> s isa GroupedStatement, statements)
